@@ -1,3 +1,8 @@
+#+TITLE: Prompter
+
+This library is heavily inspired by Emacs' minibuffer and [[https://emacs-helm.github.io/helm/][Helm]].  It only deals
+with the backend side of things, it does not handle any display.
+
 * Class overview
 
 The key objects are =prompters=, =sources= and =suggestions=.
@@ -51,6 +56,3 @@ Non-exhaustive list of features:
 - Marks actions (event-driven on marks change).
 - Current suggestion actions (event-driven on current suggestion change).
 - Automatically return the prompt when narrowed down to a single suggestion.
-
-This library is heavily inspired by Emacs' minibuffer and [[https://emacs-helm.github.io/helm/][Helm]].  It only deals
-with the backend side of things, it does not handle any display.
