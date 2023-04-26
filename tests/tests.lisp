@@ -16,7 +16,8 @@
                                          (prompter:sources prompter))))
 
 (defun prompter-thread-p (thread)
-  (str:starts-with-p "Prompter" (bt:thread-name thread)))
+  (ignore-errors                        ; On ECL, thread-names may not be strings.
+   (str:starts-with-p "Prompter" (bt:thread-name thread))))
 
 (defun all-live-prompter-threads ()
   (sera:filter (alex:conjoin #'prompter-thread-p #'bt:thread-alive-p) (bt:all-threads)))
