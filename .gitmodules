@@ -170,3 +170,7 @@
 	path = _build/trivial-package-local-nicknames
 	url = https://github.com/phoe/trivial-package-local-nicknames
 	shallow = true
+[submodule "_build/jpl-queues"]
+	path = _build/jpl-queues
+	url = https://gitlab.common-lisp.net/nyxt/jpl-queues.git
+	shallow = true
