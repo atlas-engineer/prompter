@@ -19,6 +19,9 @@
                str
                trivial-package-local-nicknames)
   :components ((:file "package")
+               (:file "filter-preprocessor")
+               (:file "filter")
+               (:file "prompter-source")
                (:file "prompter"))
   :in-order-to ((test-op (test-op "prompter/tests")
                          (test-op "prompter/tests/compilation"))))
