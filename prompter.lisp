@@ -168,25 +168,31 @@ computation is not finished.")))
   value)
 
 (export-always 'run-action-on-current-suggestion)
-(defmethod run-action-on-current-suggestion ((prompter prompter))
-  (sera:and-let* ((source (current-source prompter))
-                  (_ (actions-on-current-suggestion-enabled-p source))
-                  (_ (not (eq #'identity (alex:ensure-function
-                                          (default-action-on-current-suggestion source)))))
-                  (action (default-action-on-current-suggestion source))
-                  (suggestion (%current-suggestion prompter)))
-    (let ((delay (actions-on-current-suggestion-delay source)))
-      (if (plusp delay)
-          (run-thread "Prompter current suggestion action thread"
-            (sleep delay)
-            (funcall action (value suggestion)))
-          (funcall action (value suggestion))))))
+(defgeneric run-action-on-current-suggestion (prompter)
+  (:method ((prompter prompter))
+    (sera:and-let* ((source (current-source prompter))
+                    (_ (actions-on-current-suggestion-enabled-p source))
+                    (_ (not (eq #'identity (alex:ensure-function
+                                            (default-action-on-current-suggestion source)))))
+                    (action (default-action-on-current-suggestion source))
+                    (suggestion (%current-suggestion prompter)))
+      (let ((delay (actions-on-current-suggestion-delay source)))
+        (if (plusp delay)
+            (run-thread "Prompter current suggestion action thread"
+              (sleep delay)
+              (funcall action (value suggestion)))
+            (funcall action (value suggestion))))))
+  (:documentation "Run default action on current suggestion.
+Only if the PROMPTER current source has `actions-on-current-suggestion-enabled-p'."))
 
 (export-always 'set-action-on-current-suggestion)
-(defmethod set-action-on-current-suggestion (value (prompter prompter))
-  (setf (actions-on-current-suggestion (current-source prompter))
-        (cons value
-              (delete value (actions-on-current-suggestion (current-source prompter))))))
+(defgeneric set-action-on-current-suggestion (value prompter)
+  (:method (value (prompter prompter))
+    (setf (actions-on-current-suggestion (current-source prompter))
+          (cons value
+                (delete value (actions-on-current-suggestion (current-source prompter))))))
+  (:documentation "Set the action to be run on the newly selected suggestion.
+See also `run-action-on-current-suggestion'."))
 
 (export-always 'input)
 (defmethod (setf input) (text (prompter prompter))
@@ -267,7 +273,9 @@ when STEPS is positive (resp. negative)."
 (defun next-source (prompter &optional (steps 1))
   "Set `current-suggestion' after traversing STEPS non-empty sources.
 When STEPS is 0, do nothing.
-The `current-suggestion' is set to be the topmost of the destination source."
+The `current-suggestion' is set to be the topmost of the destination source.
+
+See also `previous-source'."
   (unless (= 0 steps)
     (sera:and-let* ((nonempty-sources (remove-if #'empty-source-p (sources prompter)))
                     (source-index (or (position (current-source prompter)
@@ -281,6 +289,7 @@ The `current-suggestion' is set to be the topmost of the destination source."
 
 (export-always 'previous-source)
 (defun previous-source (prompter &optional (steps 1))
+  "See `next-source'."
   (next-source prompter (- steps)))
 
 (defun nonempty-source-p (source)
@@ -310,6 +319,8 @@ Empty sources are skipped, unless all sources are empty."
 
 (export-always 'toggle-mark)
 (defun toggle-mark (prompter)
+  "Toggle mark on PROMPTER current suggestion.
+See also `mark-all' and `toggle-mark-all'.."
   (when (enable-marks-p (current-source prompter))
     (multiple-value-bind (suggestion source)
         (%current-suggestion prompter)
@@ -321,6 +332,9 @@ Empty sources are skipped, unless all sources are empty."
 
 (export-always 'mark-all)
 (defun mark-all (prompter)
+  "Mark all PROMPTER suggestions in current source.
+Marked suggestions are all passed to the run action.
+See also `unmark-all', `toggle-mark' and `toggle-mark-all'."
   (let ((source (current-source prompter)))
     (when (enable-marks-p source)
       (alex:unionf (marks source)
@@ -328,6 +342,8 @@ Empty sources are skipped, unless all sources are empty."
 
 (export-always 'unmark-all)
 (defun unmark-all (prompter)
+  "Unmark all PROMPTER suggestions in current source.
+See also `mark-all'."
   (let ((source (current-source prompter)))
     (when (enable-marks-p source)
       (with-accessors ((marks marks)
@@ -339,6 +355,8 @@ Empty sources are skipped, unless all sources are empty."
 
 (export-always 'toggle-mark-all)
 (defun toggle-mark-all (prompter)
+  "Toggle all PROMPTER suggestions in current source.
+See also `mark-all'."
   (let ((source (current-source prompter)))
     (when (enable-marks-p source)
       (with-accessors ((suggestions suggestions)
@@ -468,6 +486,7 @@ Example:
 
 (export-always 'current-source)
 (defun current-source (prompter)
+  "Return the current source, that is, the source of the current suggestion."
   (first (current-suggestion prompter)))
 
 (export-always '%current-suggestion)

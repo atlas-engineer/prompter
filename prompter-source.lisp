@@ -333,6 +333,8 @@ call."))
       (funcall action (marks source)))))
 
 (defmethod default-action-on-current-suggestion ((source prompter:source))
+  "Return the default action run on the newly selected suggestion.
+See `actions-on-current-suggestion'."
   (first (actions-on-current-suggestion source)))
 
 (export-always 'object-attributes)
@@ -533,16 +535,20 @@ If unset, set it to the return value of `format-attributes'."
   (match-data suggestion))
 
 (export-always 'make-suggestion)
-(defmethod make-suggestion ((value t) &optional source input)
-  "Return a `suggestion' wrapping around VALUE.
-Attributes are set with `object-attributes'."
-  (declare (ignore input))
-  (make-instance 'suggestion
-                 :value value
-                 :attributes (object-attributes value source)))
+(defgeneric make-suggestion (value &optional source input)
+  (:method ((value t) &optional source input)
+    (declare (ignore input))
+    (make-instance 'suggestion
+                   :value value
+                   :attributes (object-attributes value source)))
+  (:documentation "Return a `suggestion' wrapping around VALUE.
+Attributes are set with `object-attributes'."))
 
-(defmethod default-action-on-return ((source source))
-  (first (slot-value source 'actions-on-return)))
+(defgeneric default-action-on-return (source)
+  (:method ((source source))
+    (first (slot-value source 'actions-on-return)))
+  (:documentation "Return the default action run when returning from the prompt.
+See `actions-on-return'."))
 
 (define-class yes-no-source (source)
   ((name "Confirm")
@@ -598,15 +604,17 @@ If you are looking for a source that just returns its plain suggestions, use `so
   (:documentation "Prompt source for user input words."))
 
 (export-always 'ensure-suggestions-list)
-(defmethod ensure-suggestions-list ((source source) elements)
-  (lparallel:pmapcar
-   (lambda (suggestion-value)
-     (if (suggestion-p suggestion-value)
-         suggestion-value
-         (funcall (suggestion-maker source)
-                  suggestion-value
-                  source)))
-   (uiop:ensure-list elements)))
+(defgeneric ensure-suggestions-list (source elements)
+  (:method ((source source) elements)
+    (lparallel:pmapcar
+     (lambda (suggestion-value)
+       (if (suggestion-p suggestion-value)
+           suggestion-value
+           (funcall (suggestion-maker source)
+                    suggestion-value
+                    source)))
+     (uiop:ensure-list elements)))
+  (:documentation "Return ELEMENTS as a list of suggestions for use in SOURCE."))
 
 (defmethod initialize-instance :after ((source source) &key)
   "See the `constructor' documentation of `source'."
@@ -645,24 +653,28 @@ If you are looking for a source that just returns its plain suggestions, use `so
   source)
 
 (export-always 'attributes-keys-non-default)
-(defmethod attributes-keys-non-default ((source source))
-  "Return SOURCE attributes except the default one."
-  (rest (attributes-keys source)))
+(defgeneric attributes-keys-non-default (source)
+  (:method ((source source))
+    (rest (attributes-keys source)))
+  (:documentation "Return SOURCE attributes except the default one."))
 
 (export-always 'attributes-keys-default)
-(defmethod attributes-keys-default ((source source))
-  "Return SOURCE default attribute as a non-dotted pair."
-  (first (attributes-keys source)))
+(defgeneric attributes-keys-default (source)
+  (:method ((source source))
+    (first (attributes-keys source)))
+  (:documentation "Return SOURCE default attribute as a non-dotted pair."))
 
 (export-always 'attributes-default)
-(defmethod attributes-default ((suggestion suggestion))
-  "Return SUGGESTION default attribute value."
-  (second (first (attributes suggestion))))
+(defgeneric attributes-default (suggestion)
+  (:method ((suggestion suggestion))
+    (second (first (attributes suggestion))))
+  (:documentation "Return SUGGESTION default attribute value."))
 
 (export-always 'attributes-non-default)
-(defmethod attributes-non-default ((suggestion suggestion))
-  "Return SUGGESTION non-default attributes."
-  (rest (attributes suggestion)))
+(defgeneric attributes-non-default (suggestion)
+  (:method ((suggestion suggestion))
+    (rest (attributes suggestion)))
+  (:documentation "Return SUGGESTION non-default attributes."))
 
 (defmethod attributes-keys ((source source))
   (attributes-keys
@@ -670,11 +682,12 @@ If you are looking for a source that just returns its plain suggestions, use `so
      (attributes sugg)
      (default-object-attributes ""))))
 
-(defmethod active-attributes-keys ((source source))
-  "Return active attributes keys.
-If the `active-attributes' slot is NIL, return all attributes keys."
-  (or (slot-value source 'active-attributes-keys)
-      (attributes-keys source)))
+(defgeneric active-attributes-keys (source)
+  (:method ((source source))
+    (or (slot-value source 'active-attributes-keys)
+        (attributes-keys source)))
+  (:documentation "Return active attributes keys.
+If the `active-attributes' slot is NIL, return all attributes keys."))
 
 (defmethod (setf active-attributes-keys) (value (source source))
   "Set active attributes to the intersection of VALUE and SOURCE attributes."
@@ -687,31 +700,32 @@ If the `active-attributes' slot is NIL, return all attributes keys."
                 (apply #'remove-from-seq (attributes-keys-non-default source) value)))))
 
 (export-always 'active-attributes)
-(defmethod active-attributes ((suggestion suggestion)
-                              &key (source (error "Source required"))
-                              &allow-other-keys)
-  "Return the active attributes of SUGGESTION.
-Active attributes are queried from SOURCE."
-  (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
-                                       (active-attributes-keys source)
-                                       :test #'string=))
-        (attribute-thread nil))
-    (prog1
-        (mapcar
-         (lambda (attribute)
-           (if (functionp (attribute-value attribute))
-               (progn
-                 (unless attribute-thread (setf attribute-thread (make-attribute-thread source)))
-                 (calispel:! (attribute-channel source) (list suggestion attribute))
-                 (list (attribute-key attribute) ""))
-               attribute))
-         (remove-if
-          (lambda (attr)
-            (find (attribute-key attr) inactive-keys :test #'string=))
-          (attributes suggestion)))
-      (when attribute-thread
-        ;; Terminate thread:
-        (calispel:! (attribute-channel source) (list nil nil))))))
+(defgeneric active-attributes (suggestion &key source &allow-other-keys)
+  (:method ((suggestion suggestion)
+            &key (source (error "Source required"))
+            &allow-other-keys)
+    (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
+                                         (active-attributes-keys source)
+                                         :test #'string=))
+          (attribute-thread nil))
+      (prog1
+          (mapcar
+           (lambda (attribute)
+             (if (functionp (attribute-value attribute))
+                 (progn
+                   (unless attribute-thread (setf attribute-thread (make-attribute-thread source)))
+                   (calispel:! (attribute-channel source) (list suggestion attribute))
+                   (list (attribute-key attribute) ""))
+                 attribute))
+           (remove-if
+            (lambda (attr)
+              (find (attribute-key attr) inactive-keys :test #'string=))
+            (attributes suggestion)))
+        (when attribute-thread
+          ;; Terminate thread:
+          (calispel:! (attribute-channel source) (list nil nil))))))
+  (:documentation "Return the active attributes of SUGGESTION.
+Active attributes are queried from SOURCE."))
 
 (defun make-attribute-thread (source)
   "Return a thread that is bound to SOURCE and used to compute its `suggestion' attributes asynchronously.
@@ -731,6 +745,8 @@ Asynchronous attributes have a string-returning function as a value."
 
 (export-always 'marked-p)
 (defun marked-p (source value)
+  "Return non-nil if VALUE is marked in SOURCE.
+Comparison is done with `equalp'."
   (find value (prompter:marks source) :test #'equalp))
 
 (defun maybe-funcall (fn &rest args)
@@ -776,11 +792,14 @@ If SIZE is NIL, capacity is infinite."
                      (slot-value object slot)))
              (mopu:slot-names class-sym))))))
 
-(defmethod destroy ((source source))
-  ;; Ignore errors in case thread is already terminated.
-  ;; REVIEW: Is there a cleaner way to do this?
-  (ignore-errors (bt:destroy-thread (update-thread source)))
-  (ignore-errors (bt:destroy-thread (attribute-thread source))))
+(defgeneric destroy (source)
+  (:method ((source source))
+    ;; Ignore errors in case thread is already terminated.
+    ;; REVIEW: Is there a cleaner way to do this?
+    (ignore-errors (bt:destroy-thread (update-thread source)))
+    (ignore-errors (bt:destroy-thread (attribute-thread source))))
+  (:documentation "Clean up the source.
+SOURCE should not be used once this has been run."))
 
 (defun update (source input new-ready-channel) ; TODO: Store `input' in the source?
   "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
