@@ -8,6 +8,16 @@
   :license  "BSD-3 Clause"
   :version "0.0.0"
   :serial t
+  :depends-on (alexandria
+               calispel
+               cl-containers
+               closer-mop
+               lparallel
+               moptilities
+               nclasses
+               serapeum
+               str
+               trivial-package-local-nicknames)
   :components ((:file "package")
                (:file "prompter"))
   :in-order-to ((test-op (test-op "prompter/tests")
@@ -25,7 +35,9 @@
   :serial t
   :pathname "tests/"
   :components ((:file "package")
-               (:file "tests")))
+               (:file "tests")
+               (:file "fuzzy")
+               (:file "submatches")))
 
 (defsystem "prompter/tests/compilation"
   :defsystem-depends-on ("nasdf")
