@@ -46,4 +46,4 @@ All ARGS are declared as `ignorable'."
 (export-always '*debug-on-error*)
 (defvar *debug-on-error* nil
   "When non-nil, the Lisp debugger is invoked when a condition is raised.
-Otherwise all errors occuring in threads are demoted to warnings.")
+Otherwise all errors occurring in threads are demoted to warnings.")
