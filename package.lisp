@@ -9,7 +9,9 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (trivial-package-local-nicknames:add-package-local-nickname :alex :alexandria)
-  (trivial-package-local-nicknames:add-package-local-nickname :sera :serapeum))
+  (trivial-package-local-nicknames:add-package-local-nickname :sera :serapeum)
+  (trivial-package-local-nicknames:add-package-local-nickname :lpara :lparallel)
+  (trivial-package-local-nicknames:add-package-local-nickname :lpara.queue :lparallel.queue))
 
 (defmacro define-function (name args &body body)
   "Eval ARGS then define function over the resulting lambda list.
