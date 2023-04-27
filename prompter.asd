@@ -2,11 +2,11 @@
 ;;;; SPDX-License-Identifier: BSD-3 Clause
 
 (defsystem "prompter"
-  :description "Describe prompter here"
+  :description "Live-narrowing, fuzzy-matching, extensible prompt framework"
   :author "Atlas Engineer LLC"
   :homepage "https://github.com/atlas-engineer/prompter"
   :license  "BSD-3 Clause"
-  :version "0.0.0"
+  :version "0.1.0"
   :serial t
   :depends-on (alexandria
                calispel
