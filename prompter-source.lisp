@@ -606,7 +606,7 @@ If you are looking for a source that just returns its plain suggestions, use `so
 (export-always 'ensure-suggestions-list)
 (defgeneric ensure-suggestions-list (source elements)
   (:method ((source source) elements)
-    (lparallel:pmapcar
+    (lpara:pmapcar
      (lambda (suggestion-value)
        (if (suggestion-p suggestion-value)
            suggestion-value
