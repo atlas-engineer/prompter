@@ -16,36 +16,6 @@
 (deftype function-symbol ()
   `(and symbol (satisfies fboundp)))
 
-(defmacro with-protect ((format-string &rest args) &body body) ; TODO: Inspired by Nyxt.  Move to serapeum?
-  "Run body while capturing all conditions and echoing them as a warning.
-The warning is reported to the user as per
-FORMAT-STRING and ARGS.
-As a special case, the first `:condition' keyword in ARGS is replaced with the
-raised condition."
-  (alex:with-gensyms (c)
-    `(handler-case (progn ,@body)
-       (error (,c)
-         (declare (ignorable ,c))
-         ,(let* ((condition-index (position :condition args))
-                 (new-args (if condition-index
-                               (append (subseq args 0 condition-index)
-                                       `(,c)
-                                       (subseq args (1+ condition-index)))
-                               args)))
-            `(warn ,format-string ,@new-args))))))
-
-(defmacro run-thread (name &body body)   ; TODO: Copied from Nyxt.  Move to serapeum?
-  "Run body in a new protected new thread.
-This is a \"safe\" wrapper around `bt:make-thread'."
-  `(bt:make-thread
-    (lambda ()
-      (if *debug-on-error*
-          (progn
-            ,@body)
-          (with-protect ("Error on separate prompter thread: ~a" :condition)
-            ,@body)))
-    :name ,name))
-
 (defun object-public-slots (object-specifier)
   "Return the list of exported slots."
   (delete-if
@@ -57,6 +27,18 @@ This is a \"safe\" wrapper around `bt:make-thread'."
     (error "Source must have a name")
     :documentation "Name which can be used to differentiate sources from one
 another.")
+
+   (prompter
+    nil
+    :type (or null prompter)
+    :export nil                         ; TODO: Export?
+    :documentation "The parent prompter.")
+
+   (kernel                              ; TODO: Can we somehow avoid this?
+    nil
+    :type (or null lpara:kernel)
+    :export nil
+    :documentation "Lparallel fallback kernel in case there is not `prompter' for the source.")
 
    (constructor
     nil
@@ -83,12 +65,12 @@ On initialization this list is transformed to a list of `suggestion's with
 `suggestion-maker'.
 This list is never modified after initialization.")
 
-   (initial-suggestions-lock
-    (bt:make-lock)
-    :type bt:lock
+   (initial-suggestions-channel
+    nil
+    :type (or null lpara:channel)
     :export nil
     :initarg nil
-    :documentation "Protect `initial-suggestions' access.")
+    :documentation "Synchronize `initial-suggestions' access.")
 
    (suggestions
     '()
@@ -218,8 +200,8 @@ For convenience, it may be initialized with a single function or symbol, in
 which case it will be automatically turned into a list.")
 
    (update-notifier
-    (make-channel)
-    :type calispel:channel
+    (lpara.queue:make-queue)
+    :type lpara.queue:queue
     :documentation "A channel which is written to when `filter' commits a change
 to `suggestion's.  A notification is only sent if at least `notification-delay'
 has passed.  This is useful so that clients don't have to poll `suggestion's for
@@ -238,40 +220,6 @@ changes.")
     :initarg nil
     :documentation "Whether the source is done computing its suggestions.  See
 also `next-ready-p' and `all-ready-p' to wait until ready.")
-
-   (ready-channel
-    nil
-    :type (or null calispel:channel)
-    :export nil
-    :initarg nil
-    :documentation "Notify listener that source is ready.
-The source object is sent to the channel.
-If update calculation is aborted, nil is sent instead.")
-
-   (update-thread
-    nil
-    :type (or null bt:thread)
-    :export nil
-    :initarg nil
-    :documentation "Thread where the `filter-preprocessor', `filter' and
-`filter-postprocessor' are run.  We store it in a slot so that we can terminate
-it.")
-
-   (attribute-thread
-    nil
-    :type (or null bt:thread)
-    :export nil
-    :initarg nil
-    :documentation "Thread where the attributes get asynchronously computer.
-See `attribute-channel'.")
-
-   (attribute-channel
-    (make-channel)
-    :type (or null calispel:channel)
-    :export nil
-    :initarg nil
-    :documentation "Channel used to communicate attributes to `attribute-thread'
-to compute asynchronously.")
 
    (enable-marks-p
     nil
@@ -322,6 +270,18 @@ suggestions; they only set the `suggestion's once they are done.  Conversely,
 `filter' is passed one `suggestion' at a time and it updates `suggestion's on each
 call."))
 
+(defmacro with-kernel (holder &body body)
+  "Helper to to bind local kernel."
+  `(alex:when-let ((lpara:*kernel* (if (source-p ,holder)
+                                       (if (prompter ,holder)
+                                           (kernel (prompter ,holder))
+                                           (or (kernel ,holder)
+                                               (setf (kernel ,holder)
+                                                     (lpara:make-kernel
+                                                      (or (serapeum:count-cpus) 1)))))
+                                       (kernel ,holder))))
+     ,@body))
+
 (defun default-object-attributes (object)
   `(("Default" ,(princ-to-string object))))
 
@@ -329,8 +289,8 @@ call."))
   (setf (slot-value source 'marks) value)
   (sera:and-let* ((action (alex:ensure-function (first (actions-on-marks source))))
                   (not (eq #'identity action)))
-    (run-thread "Prompter marks action thread"
-      (funcall action (marks source)))))
+    (with-kernel source
+      (lpara:future (funcall action (marks source))))))
 
 (defmethod default-action-on-current-suggestion ((source prompter:source))
   "Return the default action run on the newly selected suggestion.
@@ -492,12 +452,22 @@ Suggestions are made with the `suggestion-maker' slot from `source'."))
 
 (defmethod attribute-key ((attribute t))
   (first attribute))
-(defmethod attribute-value ((attribute t))
-  (second attribute))
+(export-always 'attribute-value)
+(defmethod attribute-value ((attribute t) &key wait-p)
+  "Return value of ATTRIBUTE.
+If WAIT-P, block until attribute is computed.
+Otherwise return a `lparallel:future' it the attribute is not done calculating."
+  (if (or wait-p
+          (lpara:fulfilledp (second attribute)))
+      (lpara:force (second attribute))
+      (second attribute)))
 (defmethod attributes-keys ((attributes t))
   (mapcar #'attribute-key attributes))
-(defmethod attributes-values ((attributes t))
-  (mapcar #'attribute-value attributes))
+(export-always 'attributes-values)
+(defmethod attributes-values ((attributes t) &key wait-p)
+  "Return the list of ATTRIBUTES values.
+ See `attribute-value'."
+  (mapcar (lambda (a) (attribute-value a :wait-p wait-p)) attributes))
 
 (defun ensure-string (object)
   "Return \"\" if OBJECT is not a string."
@@ -606,41 +576,37 @@ If you are looking for a source that just returns its plain suggestions, use `so
 (export-always 'ensure-suggestions-list)
 (defgeneric ensure-suggestions-list (source elements)
   (:method ((source source) elements)
-    (lpara:pmapcar
-     (lambda (suggestion-value)
-       (if (suggestion-p suggestion-value)
-           suggestion-value
-           (funcall (suggestion-maker source)
-                    suggestion-value
-                    source)))
-     (uiop:ensure-list elements)))
+    (with-kernel source
+      (lpara:pmapcar
+       (lambda (suggestion-value)
+         (if (suggestion-p suggestion-value)
+             suggestion-value
+             (funcall (suggestion-maker source)
+                      suggestion-value
+                      source)))
+       (uiop:ensure-list elements))))
   (:documentation "Return ELEMENTS as a list of suggestions for use in SOURCE."))
 
 (defmethod initialize-instance :after ((source source) &key)
   "See the `constructor' documentation of `source'."
-  (let ((wait-channel (make-channel)))
-    (run-thread "Prompter source init thread"
-      (bt:acquire-lock (initial-suggestions-lock source))
-      ;; `initial-suggestions' initialization must be done before first input can be processed.
-      (etypecase (constructor source)
-        (list
-         (setf (slot-value source 'initial-suggestions)
-               (constructor source)))
-        (function
-         ;; Run constructor asynchronously.
-         (calispel:! wait-channel t)
-         (setf (slot-value source 'initial-suggestions)
-               (funcall (constructor source) source))))
-      (setf (slot-value source 'initial-suggestions)
-            (ensure-suggestions-list source (initial-suggestions source)))
-      ;; TODO: Setting `suggestions' is not needed?
-      (setf (slot-value source 'suggestions) (initial-suggestions source))
-      (bt:release-lock (initial-suggestions-lock source))
-      (when (listp (constructor source))
-        ;; Initial suggestions are set synchronously in this case.
-        (calispel:! wait-channel t)))
-    ;; Wait until above thread has acquired the `initial-suggestions-lock'.
-    (calispel:? wait-channel))
+  (if (listp (constructor source))
+      (setf (slot-value source 'initial-suggestions) (constructor source)
+            (slot-value source 'initial-suggestions) (ensure-suggestions-list source (initial-suggestions source))
+            ;; TODO: Setting `suggestions' is not needed?
+            (slot-value source 'suggestions) (initial-suggestions source))
+
+      ;; Async construction:
+      (with-kernel source
+        (setf (initial-suggestions-channel source) (lpara:make-channel))
+        (lpara:submit-task (initial-suggestions-channel source)
+                           (lambda ()
+                             (setf (slot-value source 'initial-suggestions)
+                                   (funcall (constructor source) source))
+
+                             (setf (slot-value source 'initial-suggestions)
+                                   (ensure-suggestions-list source (initial-suggestions source)))
+                             ;; TODO: Setting `suggestions' is not needed?
+                             (setf (slot-value source 'suggestions) (initial-suggestions source))))))
   (setf (actions-on-current-suggestion source)
         (uiop:ensure-list (or (actions-on-current-suggestion source)
                               #'identity)))
@@ -706,42 +672,25 @@ If the `active-attributes' slot is NIL, return all attributes keys."))
             &allow-other-keys)
     (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
                                          (active-attributes-keys source)
-                                         :test #'string=))
-          (attribute-thread nil))
-      (prog1
-          (mapcar
-           (lambda (attribute)
-             (if (functionp (attribute-value attribute))
-                 (progn
-                   (unless attribute-thread (setf attribute-thread (make-attribute-thread source)))
-                   (calispel:! (attribute-channel source) (list suggestion attribute))
-                   (list (attribute-key attribute) ""))
-                 attribute))
-           (remove-if
-            (lambda (attr)
-              (find (attribute-key attr) inactive-keys :test #'string=))
-            (attributes suggestion)))
-        (when attribute-thread
-          ;; Terminate thread:
-          (calispel:! (attribute-channel source) (list nil nil))))))
+                                         :test #'string=)))
+      ;; TODO: New kernel?
+      (with-kernel source
+        (mapcar
+         (lambda (attribute)
+           ;; TODO: Notify when done updating, maybe using `update-notifier'?
+           (if (functionp (second attribute))
+               (list (attribute-key attribute)
+                     (lpara:future
+                       (handler-case (funcall (second attribute) (value suggestion))
+                         (error (c)
+                           (format nil "keyword error: ~a" c)))))
+               attribute))
+         (remove-if
+          (lambda (attr)
+            (find (attribute-key attr) inactive-keys :test #'string=))
+          (attributes suggestion))))))
   (:documentation "Return the active attributes of SUGGESTION.
 Active attributes are queried from SOURCE."))
-
-(defun make-attribute-thread (source)
-  "Return a thread that is bound to SOURCE and used to compute its `suggestion' attributes asynchronously.
-Asynchronous attributes have a string-returning function as a value."
-  ;; TODO: Notify when done updating, maybe using `update-notifier'?
-  (run-thread "Prompter attribute thread"
-    (sera:nlet lp ((sugg-attr-pair (calispel:? (attribute-channel source))))
-      (destructuring-bind (sugg attr) sugg-attr-pair
-        ;; Recheck type here to protect against race conditions.
-        (when (functionp (attribute-value attr))
-          (setf (alex:assoc-value (attributes sugg) (attribute-key attr))
-                (list
-                 (handler-case (funcall (attribute-value attr) (value sugg))
-                   (error (c)
-                     (format nil "keyword error: ~a" c)))))
-          (lp (calispel:? (attribute-channel source))))))))
 
 (export-always 'marked-p)
 (defun marked-p (source value)
@@ -768,19 +717,6 @@ non-nil."
                (subseq sequence item-pos)))
       (list item)))
 
-(defun make-channel (&optional size)
-  "Return a channel of capacity SIZE.
-If SIZE is NIL, capacity is infinite."
-  (cond
-    ((null size)
-     (make-instance 'calispel:channel
-                    :buffer (make-instance 'jpl-queues:unbounded-fifo-queue)))
-    ((= 0 size)
-     (make-instance 'calispel:channel))
-    ((< 0 size)
-     (make-instance 'calispel:channel
-                    :buffer (make-instance 'jpl-queues:bounded-fifo-queue :capacity size)))))
-
 (defun copy-object (object &rest slot-overrides)
   (let ((class-sym (class-name (class-of object))))
     (apply #'make-instance class-sym
@@ -794,14 +730,14 @@ If SIZE is NIL, capacity is infinite."
 
 (defgeneric destroy (source)
   (:method ((source source))
-    ;; Ignore errors in case thread is already terminated.
-    ;; REVIEW: Is there a cleaner way to do this?
-    (ignore-errors (bt:destroy-thread (update-thread source)))
-    (ignore-errors (bt:destroy-thread (attribute-thread source))))
+    (maybe-funcall (destructor source) source)
+    (alex:when-let ((lpara:*kernel* (kernel source)))
+      (lpara:kill-tasks :default)
+      (lpara:end-kernel)))
   (:documentation "Clean up the source.
 SOURCE should not be used once this has been run."))
 
-(defun update (source input new-ready-channel) ; TODO: Store `input' in the source?
+(defun update (source input)            ; TODO: Store `input' in the source?
   "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
 If a previous `suggestion' computation was not finished, it is forcefully
 terminated.
@@ -818,71 +754,58 @@ terminated.
 The reason we filter in 3 stages is to allow both for asynchronous and
 synchronous filtering.  The benefit of asynchronous filtering is that it sends
 feedback to the user while the list of suggestions is being computed."
-  (when (and (update-thread source)
-             ;; This is prone to a race condition, but worst case we destroy an
-             ;; already terminated thread.
-             (bt:thread-alive-p (update-thread source)))
-    ;; Note that we may be writing multiple times to this channel, but that's
-    ;; OK, only the first value is read, so worst case the caller sees that the
-    ;; source is terminated even though it just finished updating.
-    ;; TODO: Destroying threads breaks ECL.  Use conditions instead to terminate
-    ;; threads properly.
-    (calispel:! (ready-channel source) nil)
-    (destroy source))
-  (setf (ready-channel source) new-ready-channel)
-  (setf (update-thread source)
-        (run-thread "Prompter update thread"
-          (flet ((wait-for-initial-suggestions ()
-                   (bt:acquire-lock (initial-suggestions-lock source))
-                   (bt:release-lock (initial-suggestions-lock source)))
-                 (preprocess (initial-suggestions-copy)
-                   (if (filter-preprocessor source)
-                       (ensure-suggestions-list
-                        source
-                        (funcall (filter-preprocessor source)
-                                 initial-suggestions-copy source input))
-                       initial-suggestions-copy))
-                 (process! (preprocessed-suggestions)
-                   (let ((last-notification-time (get-internal-real-time)))
-                     (setf (slot-value source 'suggestions) '())
-                     (if (or (str:empty? input)
-                             (not (filter source)))
-                         (setf (slot-value source 'suggestions) preprocessed-suggestions)
-                         (dolist (suggestion preprocessed-suggestions)
-                           (sera:and-let* ((processed-suggestion
-                                            (funcall (filter source) suggestion source input)))
-                             (setf (slot-value source 'suggestions)
-                                   (insert-item-at suggestion (sort-predicate source)
-                                                   (suggestions source)))
-                             (let* ((now (get-internal-real-time))
-                                    (duration (/ (- now last-notification-time)
-                                                 internal-time-units-per-second)))
-                               (when (or (> duration (notification-delay source))
-                                         (= (length (slot-value source 'suggestions))
-                                            (length preprocessed-suggestions)))
-                                 (calispel:! (update-notifier source) t)
-                                 (setf last-notification-time now))))))))
-                 (postprocess! ()
-                   (when (filter-postprocessor source)
+  (flet ((wait-for-initial-suggestions ()
+           (unless (or (initial-suggestions source)
+                       (not (constructor source)))
+             (setf (slot-value source 'initial-suggestions)
+                   (lpara:receive-result (initial-suggestions-channel source)))))
+         (preprocess (initial-suggestions-copy)
+           (if (filter-preprocessor source)
+               (ensure-suggestions-list
+                source
+                (funcall (filter-preprocessor source)
+                         initial-suggestions-copy source input))
+               initial-suggestions-copy))
+         (process! (preprocessed-suggestions)
+           (let ((last-notification-time (get-internal-real-time)))
+             (setf (slot-value source 'suggestions) '())
+             (if (or (str:empty? input)
+                     (not (filter source)))
+                 (setf (slot-value source 'suggestions) preprocessed-suggestions)
+                 (dolist (suggestion preprocessed-suggestions)
+                   (sera:and-let* ((processed-suggestion
+                                    (funcall (filter source) suggestion source input)))
                      (setf (slot-value source 'suggestions)
-                           (ensure-suggestions-list
-                            source
-                            (maybe-funcall (filter-postprocessor source)
-                                           (slot-value source 'suggestions)
-                                           source
-                                           input))))))
-            (unwind-protect
-                 (progn
-                   (setf (ready-p source) nil)
-                   (wait-for-initial-suggestions)
-                   (setf (last-input-downcase-p source) (current-input-downcase-p source))
-                   (setf (current-input-downcase-p source) (str:downcasep input))
-                   (process!
-                    (preprocess
-                     ;; We copy the list of initial-suggestions so that the
-                     ;; preprocessor cannot modify them.
-                     (mapcar #'copy-object (initial-suggestions source))))
-                   (postprocess!))
-              (setf (ready-p source) t)
-              ;; Signal this source is done:
-              (calispel:! new-ready-channel source))))))
+                           (insert-item-at suggestion (sort-predicate source)
+                                           (suggestions source)))
+                     (let* ((now (get-internal-real-time))
+                            (duration (/ (- now last-notification-time)
+                                         internal-time-units-per-second)))
+                       (when (or (> duration (notification-delay source))
+                                 (= (length (slot-value source 'suggestions))
+                                    (length preprocessed-suggestions)))
+                         (lpara.queue:push-queue t (update-notifier source))
+                         (setf last-notification-time now))))))))
+         (postprocess! ()
+           (when (filter-postprocessor source)
+             (setf (slot-value source 'suggestions)
+                   (ensure-suggestions-list
+                    source
+                    (maybe-funcall (filter-postprocessor source)
+                                   (slot-value source 'suggestions)
+                                   source
+                                   input))))))
+    (unwind-protect
+         (progn
+           (setf (ready-p source) nil)
+           (wait-for-initial-suggestions)
+           (setf (last-input-downcase-p source) (current-input-downcase-p source))
+           (setf (current-input-downcase-p source) (str:downcasep input))
+           (process!
+            (preprocess
+             ;; We copy the list of initial-suggestions so that the
+             ;; preprocessor cannot modify them.
+             (mapcar #'copy-object (initial-suggestions source))))
+           (postprocess!))
+      (setf (ready-p source) t)))
+  source)
