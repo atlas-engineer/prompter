@@ -56,3 +56,8 @@ Non-exhaustive list of features:
 - Marks actions (event-driven on marks change).
 - Current suggestion actions (event-driven on current suggestion change).
 - Automatically return the prompt when narrowed down to a single suggestion.
+
+* Roadmap
+
+- Benchmark.
+  See if setting task priorities with Lparallel helps performance.
