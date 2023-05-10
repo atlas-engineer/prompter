@@ -339,6 +339,7 @@ See `actions-on-current-suggestion'."
 
 (export-always 'object-attributes)
 (defgeneric object-attributes (object source)
+  (:method-combination progn)
   (:method ((object t) (source prompter:source))
     (declare (ignorable source))
     (default-object-attributes object))
@@ -428,9 +429,14 @@ keys are the sentence-cased slot names and the values the slot values passed to
 
 It's used in `make-suggestion' which can be used as a `suggestion-maker' for `source's.
 
-It's useful to separate concerns and compose between different object attributes
-and different sources (for instance, the same `object-attributes' method can be
-inherited or used across different sources)."))
+It's useful to separate concerns and compose between different object
+attributes and different sources (for instance, the same
+`object-attributes' method can be inherited or used across different
+sources).
+
+Method combinations for `object-attributes' is `progn', so additional
+`progn'-qualified methods can help in composing attributes across
+specified classes."))
 
 (define-class suggestion ()
   ((value
