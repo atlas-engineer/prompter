@@ -451,22 +451,27 @@ Suggestions are made with the `suggestion-maker' slot from `source'."))
 
 (defmethod attribute-key ((attribute t))
   (first attribute))
+
 (export-always 'attribute-value)
-(defmethod attribute-value ((attribute t) &key wait-p)
-  "Return value of ATTRIBUTE.
+(defgeneric attribute-value (attribute &key wait-p)
+  (:method ((attribute t) &key wait-p)
+    (if (or wait-p
+            (lpara:fulfilledp (second attribute)))
+        (lpara:force (second attribute))
+        (second attribute)))
+  (:documentation "Return value of ATTRIBUTE.
 If WAIT-P, block until attribute is computed.
-Otherwise return a `lparallel:future' it the attribute is not done calculating."
-  (if (or wait-p
-          (lpara:fulfilledp (second attribute)))
-      (lpara:force (second attribute))
-      (second attribute)))
+Otherwise return a `lparallel:future' it the attribute is not done calculating."))
+
 (defmethod attributes-keys ((attributes t))
   (mapcar #'attribute-key attributes))
+
 (export-always 'attributes-values)
-(defmethod attributes-values ((attributes t) &key wait-p)
-  "Return the list of ATTRIBUTES values.
- See `attribute-value'."
-  (mapcar (lambda (a) (attribute-value a :wait-p wait-p)) attributes))
+(defgeneric attributes-values (attributes &key wait-p)
+  (:method ((attributes t) &key wait-p)
+    (mapcar (lambda (a) (attribute-value a :wait-p wait-p)) attributes))
+  (:documentation "Return the list of ATTRIBUTES values.
+ See `attribute-value'."))
 
 (defun ensure-string (object)
   "Return \"\" if OBJECT is not a string."
