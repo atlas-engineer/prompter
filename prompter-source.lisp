@@ -20,7 +20,7 @@
   "Return the list of exported slots."
   (delete-if
    (complement #'exported-p)
-   (mopu:slot-names object-specifier)))
+   (slot-names object-specifier)))
 
 (define-class source ()
   ((name
@@ -730,7 +730,7 @@ non-nil."
              (lambda (slot)
                (list (intern (symbol-name slot) "KEYWORD")
                      (slot-value object slot)))
-             (mopu:slot-names class-sym))))))
+             (slot-names class-sym))))))
 
 (defgeneric destroy (source)
   (:method ((source source))
