@@ -11,6 +11,12 @@
   (the (values cl-containers:ring-buffer-reverse &optional)
        (containers:make-ring-buffer size :last-in-first-out)))
 
+(let ((count nil))
+  (defun cpu-count ()                   ; REVIEW: Not needed since Serapeum 2023-05-24.
+    (unless count
+      (setf count (or (serapeum:count-cpus) 1)))
+    count))
+
 ;; Eval at read-time because `make' is generated using the class' initargs.
 (sera:eval-always
   (define-class prompter ()
@@ -129,7 +135,7 @@ computation is not finished.")))
     ;; TODO: Kill-tasks?
     (lpara:end-kernel))
   (setf (kernel prompter) (lpara:make-kernel
-                           (or (serapeum:count-cpus) 1)
+                           (cpu-count)
                            ;; TODO: Add random suffix / id?
                            :name (format nil "prompter ~a" (prompt prompter)) ) )
   (with-kernel prompter
