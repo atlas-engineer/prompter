@@ -23,6 +23,13 @@ All ARGS are declared as `ignorable'."
                                              lambda-list-keywords)))
        ,@body)))
 
+(defun slot-names (class-specifier)
+  ;; TODO: `slot-names' or `direct-slot-names'?
+  #-ecl
+  (mopu:slot-names class-specifier)
+  #+ecl
+  (mapcar #'c2mop:slot-definition-name (c2mop:class-slots (find-class class-specifier))))
+
 (defun initargs (class-specifier)
   "Return CLASS-SPECIFIER initargs as symbols (not keywords)."
   (delete nil
@@ -31,11 +38,7 @@ All ARGS are declared as `ignorable'."
                      (symbol-name
                       (first (getf (mopu:slot-properties class-specifier slot) :initargs)))
                      (symbol-package class-specifier)))
-                  ;; TODO: `slot-names' or `direct-slot-names'?
-                  #-ecl
-                  (mopu:slot-names class-specifier)
-                  #+ecl
-                  (mapcar #'c2mop:slot-definition-name (c2mop:class-slots (find-class 'prompter))))))
+                  (slot-names class-specifier))))
 
 (defun exported-p (sym)
   (eq :external
