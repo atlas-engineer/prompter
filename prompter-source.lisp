@@ -277,8 +277,7 @@ call."))
                                            (kernel (prompter ,holder))
                                            (or (kernel ,holder)
                                                (setf (kernel ,holder)
-                                                     (lpara:make-kernel
-                                                      (or (serapeum:count-cpus) 1)))))
+                                                     (lpara:make-kernel (cpu-count)))))
                                        (kernel ,holder))))
      ,@body))
 
