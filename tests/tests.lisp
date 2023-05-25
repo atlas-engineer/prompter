@@ -47,8 +47,8 @@
 
 (defmacro with-collected-prompter ((prompter-var definition) &body body)
   `(let ((,prompter-var ,definition))
-     ,@body
-     (prompter:destroy ,prompter-var)))
+     (prog1 (progn ,@body)
+       (prompter:destroy ,prompter-var))))
 
 
 (define-test prompter-init ()

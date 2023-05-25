@@ -76,4 +76,5 @@
                       (match "foo" '("zzz" "FOO-BAR")))
       ;; match regex meta-characters
       (assert-string= "http://[1:0:0:2::3:0.]/"
-                      (match "[" '("test1" "http://[1:0:0:2::3:0.]/" "test2"))))))
+                      (match "[" '("test1" "http://[1:0:0:2::3:0.]/" "test2"))))
+    (prompter:destroy source)))

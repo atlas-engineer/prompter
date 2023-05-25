@@ -6,11 +6,13 @@
 (define-test submatches-test ()
   (flet ((submatch (input list)
            (let ((source (make-instance 'prompter:raw-source)))
-             (mapcar (lambda (suggestion)
-                       (let ((res (prompter:submatches suggestion source input)))
-                         (when res
-                           (prompter:value res))))
-                     (prompter::ensure-suggestions-list source list)))))
+             (prog1
+                 (mapcar (lambda (suggestion)
+                           (let ((res (prompter:submatches suggestion source input)))
+                             (when res
+                               (prompter:value res))))
+                         (prompter::ensure-suggestions-list source list))
+               (prompter:destroy source)))))
     (assert-equal '(nil "category" nil)
                   (submatch "cat" '("cstheory" "category" "candidate")))
     (assert-equal '("care" nil nil)
