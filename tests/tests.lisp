@@ -554,27 +554,24 @@
                       :source (prompter:current-source prompter))
                      :wait-p t)))))
 
-;; TODO: Fix this test!
-;; (define-test error-handling ()
-;;   (with-collected-prompter (prompter (prompter:make
-;;                                       :sources (make-instance 'prompter:source
-;;                                                               :name "Test source"
-;;                                                               :constructor '("foo" "bar")
-;;                                                               :filter-postprocessor
-;;                                                               (lambda (suggestions source input)
-;;                                                                 (declare (ignore suggestions source input))
-;;                                                                 (cerror "dummy" "test should not stop here")))))
-;;     ;; prompter
-;;     (flet ((current-suggestion-value ()
-;;              (prompter:value (prompter:%current-suggestion prompter))))
-;;       (lpara:task-handler-bind ((error (lambda (c)
-;;                                          (declare (ignore c))
-;;                                          (continue))))
-;;         (prompter:all-ready-p prompter)
-;;         (assert-string= "foo"
-;;                         (current-suggestion-value))
-;;         (setf (prompter:input prompter) "bar")
-;;         (prompter:all-ready-p prompter)
-;;         (assert-string= "bar"
-;;                         (current-suggestion-value))
-;;         (prompter:all-ready-p prompter)))))
+(define-test error-handling ()
+  (lpara:task-handler-bind ((error #'continue))
+    (with-collected-prompter (prompter (prompter:make
+                                        :sources (make-instance 'prompter:source
+                                                                :name "Test source"
+                                                                :constructor '("foo" "bar")
+                                                                :filter-postprocessor
+                                                                (lambda (suggestions source input)
+                                                                  (declare (ignore source input))
+                                                                  (cerror "dummy" "test should not stop here")
+                                                                  suggestions))))
+      (flet ((current-suggestion-value ()
+               (prompter:value (prompter:%current-suggestion prompter))))
+        (prompter:all-ready-p prompter)
+        (assert-string= "foo"
+                        (current-suggestion-value))
+        (setf (prompter:input prompter) "bar")
+        (prompter:all-ready-p prompter)
+        (assert-string= "bar"
+                        (current-suggestion-value))
+        (prompter:all-ready-p prompter)))))
