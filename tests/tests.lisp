@@ -60,8 +60,7 @@
       (assert-true (find "foo" (prompter:suggestions
                                 (first (prompter:sources prompter)))
                          :test #'string=
-                         :key #'prompter:value)))
-    (prompter:destroy prompter)))
+                         :key #'prompter:value)))))
 
 (define-test prompter-matching ()
   (with-collected-prompter (prompter (prompter:make
