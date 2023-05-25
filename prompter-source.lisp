@@ -737,7 +737,8 @@ non-nil."
     (maybe-funcall (destructor source) source)
     (alex:when-let ((lpara:*kernel* (kernel source)))
       (lpara:kill-tasks :default)
-      (lpara:end-kernel)))
+      (lpara:end-kernel)
+      (setf (kernel source) nil)))
   (:documentation "Clean up the source.
 SOURCE should not be used once this has been run."))
 

@@ -219,7 +219,8 @@ Signal destruction by sending a value to PROMPTER's `interrupt-channel'."
   ;; TODO: Interrupt before or after destructor?
   (with-kernel prompter
     (lpara:kill-tasks :default)
-    (lpara:end-kernel))                 ; TODO: Wait?
+    (lpara:end-kernel))              ; TODO: Wait?
+  (setf (kernel prompter) nil)
   ;; TODO: How to interrupt?
   ;; Listener should catch `lpara:task-killed-error'?
   ;; (calispel:! (sync-interrupt-channel (sync-queue prompter)) t)
