@@ -47,7 +47,7 @@
 
 (defmacro with-collected-prompter ((prompter-var definition) &body body)
   `(let ((,prompter-var ,definition))
-     (prog1 (progn ,@body)
+     (unwind-protect (progn ,@body)
        (prompter:destroy ,prompter-var))))
 
 
