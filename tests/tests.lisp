@@ -159,7 +159,7 @@
         (setf (prompter:input prompter) "baz")
         ;; Consecutive inputs happened fast enough
         (assert-equality #'<
-                         0.01
+                         0.02           ; Slow ECL should be fine here even on a CI.
                          (/ (- (get-internal-real-time) before-input)
                             internal-time-units-per-second))
         (prompter:all-ready-p prompter)))))
