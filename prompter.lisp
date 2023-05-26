@@ -25,6 +25,22 @@
       :accessor nil
       :reader input
       :documentation "User input.")
+     (input-delay
+      ;; Auto-repeat values on Xorg can be queried with
+      ;;   xset q
+      ;; and set with
+      ;;   xset r rate 240 50
+      ;; A frequency of 50 means a delay of 0.020s between repeats.
+      ;; Defaults to 25 (0.040s).
+      0.045
+      :type float
+      :documentation "When input is changed, time after which the source is updated.
+This is useful to avoid updating the sources during fast typing.")
+     (input-reader
+      nil
+      :export nil
+      :documentation "Thread that oversees input reading.
+See `input-delay'.")
 
      (prompt
       ""
@@ -97,19 +113,15 @@ Caller should handle the `prompter-interrupt' condition.")
       :documentation "Lparallel kernel for the current source calculation.
 We use a new kernel for each update to avoid race conditions and useless waiting.")
 
-     (ready-sources-channel
-      nil
-      :type (or null lpara:channel)
-      :export nil
-      :documentation "Channel to which the `current-suggestion' is sent on exit.
-Caller should handle the `prompter-interrupt' condition.")
-
      (ready-sources
-      '()
-      :type list
+      nil
+      :type (or null lpara.queue:queue)
+      :export nil)
+
+     (source-updater
+      nil
       :export nil
-      :documentation "Sources that are ready for display.
-This is used to know when a promper is done with all sources.")
+      :documentation "Thread that oversees source updating.")
 
      (returned-p
       nil
@@ -130,19 +142,43 @@ Use `all-ready-p' and `next-ready-p' to assess whether the prompter is ready.
 Sources' suggestions can be retrieved, possibly partially, even when the
 computation is not finished.")))
 
-(defun update-sources (prompter &optional (text ""))
-  (with-kernel prompter
-    ;; TODO: Kill-tasks?
-    (lpara:end-kernel))
-  (setf (kernel prompter) (lpara:make-kernel
-                           (cpu-count)
-                           ;; TODO: Add random suffix / id?
-                           :name (format nil "prompter ~a" (prompt prompter)) ) )
-  (with-kernel prompter
-    (setf (ready-sources prompter) '())
-    (setf (ready-sources-channel prompter) (lpara:make-channel)) ; Make new channel so that old updates don't conflict.
-    (dolist (source (sources prompter))
-      (lpara:submit-task (ready-sources-channel prompter) #'update source text))))
+(defun update-sources (prompter)
+  ;; TODO: Add argment to bypass sleep? (May be useful on initialization.)
+  (sera:synchronized (prompter)
+    (when (or (null (input-reader prompter)) ;
+              (lpara:fulfilledp (input-reader prompter)))
+      (when (or (null (kernel prompter))
+                (and (input-reader prompter) ; TODO: Move to initialization if we don't call `lpara:end-kernel' ?
+                     (lpara:fulfilledp (input-reader prompter))
+                     (source-updater prompter)
+                     (not (lpara:fulfilledp (source-updater prompter)))))
+        (with-kernel prompter
+          ;; (lpara:kill-tasks :default)
+          ;; TODO: Kill tasks?  End kernel?
+          (lpara:end-kernel))
+        (setf (kernel prompter) (lpara:make-kernel
+                                 (cpu-count)
+                                 ;; TODO: Add random suffix / id?
+                                 :name (format nil "prompter-~a"
+                                               (let ((title (prompt prompter)))
+                                                 (if (uiop:emptyp title)
+                                                     "anonymous"
+                                                     title))))))
+      (setf (ready-sources prompter) (lpara.queue:make-queue))
+      (with-kernel prompter
+        (setf (input-reader prompter)
+              (lpara:future
+                (sleep (input-delay prompter))
+                (setf (source-updater prompter)
+                      (lpara:future
+                        (let ((text (slot-value prompter 'input)))
+                          (prog1 (lpara:pmapcar
+                                  (lambda (source)
+                                    (update source text)
+                                    (lpara.queue:push-queue source (ready-sources prompter))
+                                    source)
+                                  (sources prompter))
+                            (first-suggestion prompter)))))))))))
 
 (defmethod initialize-instance :after ((prompter prompter) &key sources
                                        &allow-other-keys)
@@ -163,7 +199,7 @@ computation is not finished.")))
     (alex:appendf (sources prompter) (ensure-sources sources)))
   (first-suggestion prompter)
   (maybe-funcall (constructor prompter) prompter)
-  (update-sources prompter (input prompter))
+  (update-sources prompter)
   prompter)
 
 (defmethod (setf current-suggestion) (value (prompter prompter))
@@ -200,12 +236,11 @@ See also `run-action-on-current-suggestion'."))
 
 (export-always 'input)
 (defmethod (setf input) (text (prompter prompter))
-  "Update PROMPTER sources and return TEXT."
-  (let ((old-input (slot-value prompter 'input)))
-    (unless (string= old-input text)
-      (setf (slot-value prompter 'input) text)
-      (update-sources prompter text)
-      (first-suggestion prompter)))
+  "Update PROMPTER sources and return TEXT.
+This is non-blocking: the source update is done in parallel."
+  (unless (string= (slot-value prompter 'input) text)
+    (setf (slot-value prompter 'input) text)
+    (update-sources prompter))
   text)
 
 (export-always 'destroy)
@@ -454,23 +489,27 @@ This is unblocked when the PROMPTER is `destroy'ed."
       (lpara:task-handler-bind ((lpara:task-killed-error (lambda (c)
                                                            (declare (ignore c))
                                                            (return nil))))
-        (if (= (length (ready-sources prompter)) (length (sources prompter)))
+        (if (and (all-ready-p prompter :wait-p nil)
+                 (lpara.queue:queue-empty-p (ready-sources prompter)))
             t
-            (alex:when-let ((source (if wait-p
-                                        (lpara:receive-result (ready-sources-channel prompter))
-                                        (lpara:try-receive-result (ready-sources-channel prompter)
-                                                                  :timeout 0))))
-              (push source (ready-sources prompter))
-              source))))))
+            (if wait-p
+                (lpara.queue:pop-queue (ready-sources prompter))
+                (lpara.queue:try-pop-queue (ready-sources prompter)
+                                           :timeout 0)))))))
 
 (export-always 'all-ready-p)
-(defun all-ready-p (prompter)
+(defun all-ready-p (prompter &key (wait-p t))
   "Return non-nil when all PROMPTER sources are ready.
-Blocking."
-  (sera:nlet check ((next-source (next-ready-p prompter)))
-    (typecase next-source
-      (boolean next-source)
-      (t (check (next-ready-p prompter))))))
+If WAIT-P, block until all sources are ready."
+  (or (null (kernel prompter))
+      (null (input-reader prompter))
+      (with-kernel prompter
+        (if wait-p
+            ;; TODO: Add `lpara:task-handler-bind' to catch destruction?
+            (and (lpara:force (input-reader prompter))
+                 (lpara:force (source-updater prompter)))
+            (and (lpara:fulfilledp (input-reader prompter))
+                 (lpara:fulfilledp (source-updater prompter)))))))
 
 (export-always 'make)
 (define-function make
