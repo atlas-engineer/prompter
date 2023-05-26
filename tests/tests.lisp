@@ -164,6 +164,30 @@
                             internal-time-units-per-second))
         (prompter:all-ready-p prompter)))))
 
+(define-test spam-input ()
+  (let* ((suggestion-values '("foobar" "foobaz"))
+         (source (make-instance 'prompter:source
+                                :name "Test source"
+                                :constructor suggestion-values
+                                ;; :filter #'slow-identity-match
+                                )))
+    (with-collected-prompter (prompter (prompter:make :sources source
+                                                      :input-delay 0.005))
+      (let ((inputs (mapcar (lambda (&rest _)
+                              (declare (ignore _))
+                              (princ-to-string (random 100000)))
+                            (alex:iota 100))))
+        (prompter:all-ready-p prompter)
+        (let ((before-input (get-internal-real-time)))
+          (dolist (input inputs)
+            (setf (prompter:input prompter) input))
+          ;; Consecutive inputs happened fast enough
+          (assert-equality #'<
+                           0.01     ; Slow ECL should be fine here even on a CI.
+                           (/ (- (get-internal-real-time) before-input)
+                              internal-time-units-per-second))
+          (prompter:all-ready-p prompter))))))
+
 (define-test yes-no-prompt ()
   (let* ((source (make-instance 'prompter:yes-no-source
                                 :constructor '("no" "yes"))))
