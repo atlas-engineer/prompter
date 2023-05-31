@@ -255,12 +255,7 @@ Signal destruction by sending a value to PROMPTER's `interrupt-channel'."
   (with-kernel prompter
     (lpara:kill-tasks :default)
     (lpara:end-kernel))              ; TODO: Wait?
-  (setf (kernel prompter) nil)
-  ;; TODO: How to interrupt?
-  ;; Listener should catch `lpara:task-killed-error'?
-  ;; (calispel:! (sync-interrupt-channel (sync-queue prompter)) t)
-  ;; (calispel:! (interrupt-channel prompter) t)
-  )
+  (setf (kernel prompter) nil))
 
 (defun set-current-suggestion (prompter steps &key wrap-over-p)
   "Set PROMPTER's `current-suggestion' by jumping STEPS forward.
