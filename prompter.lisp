@@ -208,16 +208,25 @@ See also `run-action-on-current-suggestion'."))
       (first-suggestion prompter)))
   text)
 
+(export-always 'canceled)
+(define-condition canceled (error)
+  ()
+  (:documentation "Condition raised in `result-channel' when `destroy' is called."))
+
 (export-always 'destroy)
 (defmethod destroy ((prompter prompter))
   "First call `before-destructor', then call all the source destructors, finally call
 `after-destructor'.
-Signal destruction by sending a value to PROMPTER's `interrupt-channel'."
+Signal destruction by raising a  PROMPTER's `result-channel'."
   (maybe-funcall (before-destructor prompter))
   (mapc #'destroy (sources prompter))
   (maybe-funcall (after-destructor prompter))
   ;; TODO: Interrupt before or after destructor?
   (with-kernel prompter
+    (unless (lpara:fulfilledp (result-channel prompter))
+      (lpara:task-handler-bind ((error #'lpara:invoke-transfer-error))
+        (lpara:fulfill (result-channel prompter)
+          (lpara:chain (lpara:future (error 'canceled))))))
     (lpara:kill-tasks :default)
     (lpara:end-kernel))              ; TODO: Wait?
   (setf (kernel prompter) nil))
