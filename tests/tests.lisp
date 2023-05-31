@@ -188,6 +188,20 @@
                               internal-time-units-per-second))
           (prompter:all-ready-p prompter))))))
 
+(define-test prompter-interrupt ()
+  (let* ((suggestion-values '("foobar" "foobaz"))
+         (source (make-instance 'prompter:source
+                                :name "Test source"
+                                :constructor suggestion-values
+                                :filter #'slow-identity-match)))
+    (let ((prompter (prompter:make :sources source)))
+      (setf (prompter:input prompter) "foo")
+      (bt:make-thread (lambda ()
+                        (sleep 0.5)
+                        (prompter:destroy prompter)))
+      (assert-error 'prompter:canceled
+                    (lpara:force (prompter:result-channel prompter))))))
+
 (define-test yes-no-prompt ()
   (let* ((source (make-instance 'prompter:yes-no-source
                                 :constructor '("no" "yes"))))
