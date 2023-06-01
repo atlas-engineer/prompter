@@ -143,25 +143,26 @@ computation is not finished.")))
 (defun update-sources (prompter)
   ;; TODO: Add argment to bypass sleep? (May be useful on initialization.)
   (sera:synchronized (prompter)
-    (when (or (null (input-reader prompter)) ;
+    (when (or (not (input-reader prompter)) ;
               (lpara:fulfilledp (input-reader prompter)))
-      (when (or (null (kernel prompter))
+      (when (or (not (kernel prompter))
                 (and (input-reader prompter) ; TODO: Move to initialization if we don't call `lpara:end-kernel' ?
                      (lpara:fulfilledp (input-reader prompter))
                      (source-updater prompter)
                      (not (lpara:fulfilledp (source-updater prompter)))))
         (with-kernel prompter
-          ;; (lpara:kill-tasks :default)
-          ;; TODO: Kill tasks?  End kernel?
+          ;; Killing tasks is blocking and thus slow.
+          ;; Ending the kernel (with :WAIT NIL) is fast because it happens in a
+          ;; separate thread (the shutdown manager).
           (lpara:end-kernel))
         (setf (kernel prompter) (lpara:make-kernel
                                  (cpu-count)
-                                 ;; TODO: Add random suffix / id?
-                                 :name (format nil "prompter-~a"
+                                 :name (format nil "prompter-~a-~a"
                                                (let ((title (prompt prompter)))
                                                  (if (uiop:emptyp title)
                                                      "anonymous"
-                                                     title))))))
+                                                     title))
+                                               (gensym "")))))
       (setf (ready-sources prompter) (lpara.queue:make-queue))
       (with-kernel prompter
         (setf (input-reader prompter)
