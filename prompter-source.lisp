@@ -591,8 +591,9 @@ If you are looking for a source that just returns its plain suggestions, use `so
 (defmethod initialize-instance :after ((source source) &key)
   "See the `constructor' documentation of `source'."
   (if (listp (constructor source))
-      (setf (slot-value source 'initial-suggestions) (constructor source)
-            (slot-value source 'initial-suggestions) (ensure-suggestions-list source (initial-suggestions source))
+      (setf (slot-value source 'initial-suggestions) (ensure-suggestions-list
+                                                      source
+                                                      (constructor source))
             ;; TODO: Setting `suggestions' is not needed?
             (slot-value source 'suggestions) (initial-suggestions source))
 
@@ -602,10 +603,9 @@ If you are looking for a source that just returns its plain suggestions, use `so
         (lpara:submit-task (initial-suggestions-channel source)
                            (lambda ()
                              (setf (slot-value source 'initial-suggestions)
-                                   (funcall (constructor source) source))
+                                   (ensure-suggestions-list source
+                                                            (funcall (constructor source) source)))
 
-                             (setf (slot-value source 'initial-suggestions)
-                                   (ensure-suggestions-list source (initial-suggestions source)))
                              ;; TODO: Setting `suggestions' is not needed?
                              (setf (slot-value source 'suggestions) (initial-suggestions source))))))
   (setf (actions-on-current-suggestion source)
