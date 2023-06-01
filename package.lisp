@@ -3,7 +3,7 @@
 
 (uiop:define-package :prompter
   (:use :common-lisp)
-  (:import-from :nclasses #:define-class)
+  (:import-from :nclasses #:define-class #:define-generic)
   (:import-from :serapeum #:export-always))
 (in-package prompter)
 
