@@ -11,40 +11,6 @@
   (mapcar #'prompter:value (alex:mappend #'prompter:suggestions
                                          (prompter:sources prompter))))
 
-;; (defun prompter-thread-p (thread)
-;;   (ignore-errors                        ; On ECL, thread-names may not be strings.
-;;    (string= (prompter:name ) (bt:thread-name thread))))
-
-;; (defun all-live-prompter-threads ()
-;;   (sera:filter (alex:conjoin #'prompter-thread-p #'bt:thread-alive-p) (bt:all-threads)))
-
-;; (defun join-thread* (thread)
-;;   "Like `bt:join-thread' but don't fail on already aborted threads."
-;;   ;; CCL's `join-thread' works with aborted threads, but SBCL emits a
-;;   ;; `join-thread-error' condition.
-;;   (handler-case (bt:join-thread thread)
-;;     #+sbcl
-;;     (sb-thread:join-thread-error ()
-;;       nil)))
-
-;; #-ccl
-;; (defmacro with-report-dangling-threads (&body body)
-;;   `(unwind-protect (progn ,@body)
-;;      (let ((remaining-threads (all-live-prompter-threads)))
-;;        ;; Time out should be correlated to the number of threads since it may
-;;        ;; take some time to destroy them on weak hardware.
-;;        (handler-case (bt:with-timeout ((* 2 (length remaining-threads)))
-;;                        (mapc #'join-thread* remaining-threads))
-;;          (t (c)
-;;            (error "Error when joining ~a: ~a" remaining-threads c))))
-;;      ;; No dangling threads
-;;      (assert-false (all-live-prompter-threads))))
-
-;; CCL randomly fails here.  TODO: There may be a race condition.
-;; #+ccl
-;; (defmacro with-report-dangling-threads (&body body)
-;;   `(progn ,@body))
-
 (defmacro with-collected-prompter ((prompter-var definition) &body body)
   `(let ((,prompter-var ,definition))
      (unwind-protect (progn ,@body)
