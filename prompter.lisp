@@ -30,7 +30,7 @@
       ;;   xset q
       ;; and set with
       ;;   xset r rate 240 50
-      ;; A frequency of 50 means a delay of 0.020s between repeats.
+      ;; A frequency of 50Hz means a delay of 0.020s between repeats.
       ;; Defaults to 25 (0.040s).
       0.045
       :type float
