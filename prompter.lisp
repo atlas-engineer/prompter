@@ -185,6 +185,8 @@ computation is not finished.")))
     (setf (prompt prompter) (write-to-string (prompt prompter))))
   (unless (stringp (input prompter))
     (setf (input prompter) (write-to-string (input prompter))))
+  (dolist (source (sources prompter))
+    (setf (prompter source) prompter))
   (flet ((ensure-sources (specifiers)
            (mapcar (lambda (source-specifier)
                      (cond
@@ -519,7 +521,7 @@ If WAIT-P, block until all sources are ready."
 (define-function make
     (append '(&rest args)
             `(&key sources ,@(public-initargs 'prompter)))
-  "Return `prompter' object.
+  "Return a new `prompter' object.
 The arguments are the initargs of the `prompter' class.
 
 As a special case, the `:sources' keyword argument not only accepts `source'
@@ -527,9 +529,7 @@ objects but also symbols.
 
 Example:
 (prompter:make :sources 'prompter:raw-source)"
-  (sera:lret ((prompter (apply #'make-instance 'prompter args)))
-    (dolist (source (sources prompter))
-      (setf (prompter source) prompter))))
+  (apply #'make-instance 'prompter args))
 
 (export-always 'current-source)
 (defun current-source (prompter)
