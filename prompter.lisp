@@ -491,13 +491,15 @@ This is unblocked when the PROMPTER is `destroy'ed."
     (lpara:task-handler-bind ((lpara:task-killed-error (lambda (c)
                                                          (declare (ignore c))
                                                          (return-from next-ready-p nil))))
-      (if (and (all-ready-p prompter :wait-p nil)
-               (lpara.queue:queue-empty-p (ready-sources prompter)))
-          t
-          (if wait-p
-              (lpara.queue:pop-queue (ready-sources prompter))
-              (lpara.queue:try-pop-queue (ready-sources prompter)
-                                         :timeout 0))))))
+      (cond
+        ((and (all-ready-p prompter :wait-p nil)
+              (lpara.queue:queue-empty-p (ready-sources prompter)))
+         t)
+        (wait-p
+         (lpara.queue:pop-queue (ready-sources prompter)))
+        (t
+         (lpara.queue:try-pop-queue (ready-sources prompter)
+                                    :timeout 0))))))
 
 (export-always 'all-ready-p)
 (defun all-ready-p (prompter &key (wait-p t))
