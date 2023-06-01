@@ -768,8 +768,7 @@ feedback to the user while the list of suggestions is being computed."
                      (not (filter source)))
                  (setf (slot-value source 'suggestions) preprocessed-suggestions)
                  (dolist (suggestion preprocessed-suggestions)
-                   (sera:and-let* ((processed-suggestion
-                                    (funcall (filter source) suggestion source input)))
+                   (alex:when-let ((suggestion (funcall (filter source) suggestion source input)))
                      (setf (slot-value source 'suggestions)
                            (insert-item-at suggestion (sort-predicate source)
                                            (suggestions source)))
