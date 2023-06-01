@@ -590,24 +590,24 @@ If you are looking for a source that just returns its plain suggestions, use `so
 
 (defmethod initialize-instance :after ((source source) &key)
   "See the `constructor' documentation of `source'."
-  (if (listp (constructor source))
-      (setf (slot-value source 'initial-suggestions) (ensure-suggestions-list
-                                                      source
-                                                      (constructor source))
-            ;; TODO: Setting `suggestions' is not needed?
-            (slot-value source 'suggestions) (initial-suggestions source))
+  (etypecase (constructor source)
+    (list
+     (setf (slot-value source 'initial-suggestions) (ensure-suggestions-list
+                                                     source
+                                                     (constructor source))
+           ;; TODO: Setting `suggestions' is not needed?
+           (slot-value source 'suggestions) (initial-suggestions source)))
+    (t ;; Async construction:
+     (with-kernel source
+       (setf (initial-suggestions-channel source) (lpara:make-channel))
+       (lpara:submit-task (initial-suggestions-channel source)
+                          (lambda ()
+                            (setf (slot-value source 'initial-suggestions)
+                                  (ensure-suggestions-list source
+                                                           (funcall (constructor source) source)))
 
-      ;; Async construction:
-      (with-kernel source
-        (setf (initial-suggestions-channel source) (lpara:make-channel))
-        (lpara:submit-task (initial-suggestions-channel source)
-                           (lambda ()
-                             (setf (slot-value source 'initial-suggestions)
-                                   (ensure-suggestions-list source
-                                                            (funcall (constructor source) source)))
-
-                             ;; TODO: Setting `suggestions' is not needed?
-                             (setf (slot-value source 'suggestions) (initial-suggestions source))))))
+                            ;; TODO: Setting `suggestions' is not needed?
+                            (setf (slot-value source 'suggestions) (initial-suggestions source)))))))
   (setf (actions-on-current-suggestion source)
         (uiop:ensure-list (or (actions-on-current-suggestion source)
                               #'identity)))
