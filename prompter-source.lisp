@@ -37,6 +37,8 @@ another.")
    (kernel                              ; TODO: Can we somehow avoid this?
     nil
     :type (or null lpara:kernel)
+    :writer t
+    :reader nil
     :export nil
     :documentation "Lparallel fallback kernel in case there is not `prompter' for the source.")
 
@@ -270,15 +272,16 @@ suggestions; they only set the `suggestion's once they are done.  Conversely,
 `filter' is passed one `suggestion' at a time and it updates `suggestion's on each
 call."))
 
+(defmethod kernel ((source source))
+  (if (prompter source)
+      (kernel (prompter source))
+      (or (slot-value source 'kernel)
+          (setf (kernel source)
+                (lpara:make-kernel (cpu-count))))))
+
 (defmacro with-kernel (holder &body body)
   "Helper to to bind local kernel."
-  `(alex:when-let ((lpara:*kernel* (if (source-p ,holder)
-                                       (if (prompter ,holder)
-                                           (kernel (prompter ,holder))
-                                           (or (kernel ,holder)
-                                               (setf (kernel ,holder)
-                                                     (lpara:make-kernel (cpu-count)))))
-                                       (kernel ,holder))))
+  `(alex:when-let ((lpara:*kernel* (kernel ,holder)))
      ,@body))
 
 (defun default-object-attributes (object)
