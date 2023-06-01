@@ -85,10 +85,8 @@ If nil, no history is used.")
 
      (result-channel
       (lpara:promise)
-      :type lpara:promise
       :documentation "Channel to which the `current-suggestion' is sent on exit.
-Caller should handle the `prompter-interrupt' condition.")
-     ;; TODO: Raise this condition?  Or leave it to `lparallel:task-killed-error'?
+Caller should handle the `prompter:canceled' condition.")
 
      (kernel
       nil
