@@ -670,7 +670,7 @@ Active attributes are queried from SOURCE."
   (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
                                        (active-attributes-keys source)
                                        :test #'string=)))
-    ;; TODO: New kernel?
+    ;; TODO: New kernel to not overload the `prompter` threads busy with computing `update'?
     (with-kernel source
       (mapcar
        (lambda (attribute)
