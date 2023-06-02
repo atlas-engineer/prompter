@@ -40,7 +40,7 @@ another.")
     :writer t
     :reader nil
     :export nil
-    :documentation "Lparallel fallback kernel in case there is not `prompter' for the source.")
+    :documentation "Lparallel fallback kernel in case there is no `prompter' for the source.")
 
    (constructor
     nil
@@ -598,7 +598,10 @@ If you are looking for a source that just returns its plain suggestions, use `so
      (setf (slot-value source 'initial-suggestions) (ensure-suggestions-list
                                                      source
                                                      (constructor source))
-           ;; TODO: Setting `suggestions' is not needed?
+           ;; `suggestions' are in `update'.  So if `update' hasn't run yet, the
+           ;; prompter would initially have no suggestion.  It can be a problem
+           ;; if the preprocessor is slow, which is why we initialize
+           ;; `suggestions' here.
            (slot-value source 'suggestions) (initial-suggestions source)))
     (t ;; Async construction:
      (with-kernel source
@@ -608,8 +611,6 @@ If you are looking for a source that just returns its plain suggestions, use `so
                             (setf (slot-value source 'initial-suggestions)
                                   (ensure-suggestions-list source
                                                            (funcall (constructor source) source)))
-
-                            ;; TODO: Setting `suggestions' is not needed?
                             (setf (slot-value source 'suggestions) (initial-suggestions source)))))))
   (setf (actions-on-current-suggestion source)
         (uiop:ensure-list (or (actions-on-current-suggestion source)
@@ -669,7 +670,8 @@ If the `active-attributes' slot is NIL, return all attributes keys."
                                    &key (source (error "Source required"))
                                    &allow-other-keys)
   "Return the active attributes of SUGGESTION.
-Active attributes are queried from SOURCE."
+Active attributes are attributes whose keys are listed in the
+`active-attributes-keys' slot of SOURCE."
   (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
                                        (active-attributes-keys source)
                                        :test #'string=)))
@@ -766,6 +768,9 @@ feedback to the user while the list of suggestions is being computed."
                initial-suggestions-copy))
          (process! (preprocessed-suggestions)
            (let ((last-notification-time (get-internal-real-time)))
+             ;; `last-notification-time' is needed to check if
+             ;; `notification-delay' was exceeded, after which `update-notifier'
+             ;; is notified.
              (setf (slot-value source 'suggestions) '())
              (if (or (str:empty? input)
                      (not (filter source)))

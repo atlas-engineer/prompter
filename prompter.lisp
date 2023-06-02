@@ -217,7 +217,7 @@ See also `run-action-on-current-suggestion'."))
 (defmethod destroy ((prompter prompter))
   "First call `before-destructor', then call all the source destructors, finally call
 `after-destructor'.
-Signal destruction by raising a  PROMPTER's `result-channel'."
+Signal destruction by raising a PROMPTER's `result-channel'."
   (maybe-funcall (before-destructor prompter))
   (mapc #'destroy (sources prompter))
   (maybe-funcall (after-destructor prompter))
