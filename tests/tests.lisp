@@ -166,7 +166,7 @@
                         (sleep 0.5)
                         (prompter:destroy prompter)))
       (assert-error 'prompter:canceled
-                    (lpara:force (prompter:result-channel prompter))))))
+                    (prompter:result prompter)))))
 
 (define-test yes-no-prompt ()
   (let* ((source (make-instance 'prompter:yes-no-source
@@ -191,7 +191,7 @@
     (when (prompter:all-ready-p prompter)
       (prompter:run-action-on-return prompter)
       (assert-equal '("bar")
-                    (lpara:force (prompter:result-channel prompter))))))
+                    (prompter:result prompter)))))
 
 (define-test multi-sources ()
   (with-collected-prompter (prompter (prompter:make
