@@ -83,9 +83,14 @@ automatically runs when the suggestions are narrowed down to just one item.")
       :documentation "History of inputs for the prompter.
 If nil, no history is used.")
 
-     (result-channel
+     (result
       (lpara:promise)
-      :documentation "Channel to which the `current-suggestion' is sent on exit.
+      :accessor nil
+      :export t
+      :documentation "The `current-suggestion' returned on exit.  Use the reader
+to block until the prompter is returned.
+Use `slot-value' to manipulate the low-level asynchronous structure;
+beware the API may change.
 Caller should handle the `prompter:canceled' condition.")
 
      (kernel
@@ -127,6 +132,10 @@ sources.
 Use `all-ready-p' and `next-ready-p' to assess whether the prompter is ready.
 Sources' suggestions can be retrieved, possibly partially, even when the
 computation is not finished.")))
+
+(define-generic result ((prompter prompter))
+  "Block and return PROMPTER's `result'."
+  (lpara:force (slot-value prompter 'result)))
 
 (defun update-sources (prompter &optional (text ""))
   (with-kernel prompter
@@ -211,21 +220,21 @@ See also `run-action-on-current-suggestion'."))
 (export-always 'canceled)
 (define-condition canceled (error)
   ()
-  (:documentation "Condition raised in `result-channel' when `destroy' is called."))
+  (:documentation "Condition raised in the `result' listener when `destroy' is called."))
 
 (export-always 'destroy)
 (defmethod destroy ((prompter prompter))
   "First call `before-destructor', then call all the source destructors, finally call
 `after-destructor'.
-Signal destruction by raising a PROMPTER's `result-channel'."
+Signal destruction by transfering a `canceled' condition to the `result' listener."
   (maybe-funcall (before-destructor prompter))
   (mapc #'destroy (sources prompter))
   (maybe-funcall (after-destructor prompter))
   ;; TODO: Interrupt before or after destructor?
   (with-kernel prompter
-    (unless (lpara:fulfilledp (result-channel prompter))
+    (unless (lpara:fulfilledp (slot-value prompter 'result))
       (lpara:task-handler-bind ((error #'lpara:invoke-transfer-error))
-        (lpara:fulfill (result-channel prompter)
+        (lpara:fulfill (slot-value prompter 'result)
           (lpara:chain (lpara:future (error 'canceled))))))
     (lpara:kill-tasks :default)
     (lpara:end-kernel))              ; TODO: Wait?
@@ -447,14 +456,14 @@ If input is already in history, move to first position."
 (defun run-action-on-return (prompter &optional (action-on-return
                                                  (default-action-on-return prompter)))
   "Call ACTION-ON-RETURN over `marks' and send the results to PROMPTER's
-`result-channel'.
+`result'.
 See `resolve-marks' for a reference on how `marks' are handled."
   (unless action-on-return (setf action-on-return #'identity))
   (setf (returned-p prompter) t)
   (add-input-to-history prompter)
   (alex:when-let ((marks (resolve-marks prompter)))
     ;; TODO: Wrap waiter in a function?
-    (lpara:fulfill (result-channel prompter)
+    (lpara:fulfill (slot-value prompter 'result)
       (funcall action-on-return marks)))
   (destroy prompter))
 

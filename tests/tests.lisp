@@ -153,7 +153,7 @@
     (when (prompter:all-ready-p prompter)
       (prompter:run-action-on-return prompter)
       (assert-equal '("bar")
-                    (lpara:force (prompter:result-channel prompter))))))
+                    (prompter:result prompter)))))
 
 (define-test multi-sources ()
   (with-collected-prompter (prompter (prompter:make
