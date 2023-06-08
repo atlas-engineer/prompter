@@ -306,9 +306,9 @@ See `actions-on-current-suggestion'."
     (default-object-attributes object))
   (:method :around ((object t) (source prompter:source))
     (declare (ignorable source))
-    (loop for pair in (call-next-method)
-          for key = (first pair)
-          for value = (second pair)
+    (loop for attribute in (call-next-method)
+          for key = (first attribute)
+          for value = (second attribute)
           ;; NOTE: Duplicate keys are bad, because searching the alist by key
           ;; will always return the first occurrence, and never the second.
           when (member key keys :test #'string-equal)
@@ -320,11 +320,11 @@ Attribute names should be unique for prompter to correctly filter those."
           ;; values) branches would be more correct, but does that matter enough
           ;; to bother?
           if (functionp value)
-            collect (list (princ-to-string key) value)
+            collect (append (list (princ-to-string key) value) (cddr attribute))
           ;; REVIEW: Can keys actually be non-string? Maybe type those?
           else if (and (stringp key) (stringp value))
-                 collect pair
-          else collect (list (princ-to-string key) (princ-to-string value))))
+                 collect attribute
+          else collect (append (list (princ-to-string key) (princ-to-string value)) (cddr attribute))))
   (:method ((object hash-table) (source prompter:source))
     (declare (ignorable source))
     (let ((result))
@@ -361,9 +361,11 @@ Attribute names should be unique for prompter to correctly filter those."
          (nreverse result)))
       ((undotted-alist-p object)
        (mapcar (lambda (pair)
-                 (list
-                  (princ-to-string (first pair))
-                  (princ-to-string (second pair))))
+                 (append
+                  (list
+                   (princ-to-string (first pair))
+                   (princ-to-string (second pair)))
+                  (cddr pair)))
                object))
       ((alist-p object)
        (mapcar (lambda (pair)
@@ -681,11 +683,13 @@ Active attributes are attributes whose keys are listed in the
        (lambda (attribute)
          ;; TODO: Notify when done updating, maybe using `update-notifier'?
          (if (functionp (second attribute))
-             (list (attribute-key attribute)
-                   (lpara:future
-                     (handler-case (funcall (second attribute) (value suggestion))
-                       (error (c)
-                         (format nil "keyword error: ~a" c)))))
+             (append (list
+                      (attribute-key attribute)
+                      (lpara:future
+                        (handler-case (funcall (second attribute) (value suggestion))
+                          (error (c)
+                            (format nil "keyword error: ~a" c)))))
+                     (cddr attribute))
              attribute))
        (remove-if
         (lambda (attr)
