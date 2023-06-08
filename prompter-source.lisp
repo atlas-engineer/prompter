@@ -488,6 +488,16 @@ Otherwise return a `lparallel:future' it the attribute is not done calculating."
 See `attribute-value'."
   (mapcar (lambda (a) (attribute-value a :wait-p wait-p)) attributes))
 
+(export-always 'attribute-options)
+(define-generic attribute-options ((attribute t))
+  "Return the options of ATTRIBUTE, if any."
+  (cddr attribute))
+
+(export-always 'attributes-options)
+(define-generic attributes-options ((attributes t))
+  "Return the options of ATTRIBUTE, if any."
+  (mapcar #'attribute-options attributes))
+
 (defun ensure-string (object)
   "Return \"\" if OBJECT is not a string."
   (if (stringp object)

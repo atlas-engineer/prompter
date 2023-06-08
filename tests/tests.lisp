@@ -518,12 +518,12 @@
                       (prompter:%current-suggestion prompter)
                       :source (prompter:current-source prompter))
                      :wait-p t))
-      (assert-equal '(nil
-                     (:misc-option))
-                    (mapcar #'cddr
-                            (prompter:active-attributes
-                             (prompter:%current-suggestion prompter)
-                             :source (prompter:current-source prompter)))))))
+      (assert-equal '(()
+                      (:misc-option))
+                    (prompter:attributes-options
+                     (prompter:active-attributes
+                      (prompter:%current-suggestion prompter)
+                      :source (prompter:current-source prompter)))))))
 
 (define-test error-handling ()
   (lpara:task-handler-bind ((error #'continue))
