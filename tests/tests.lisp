@@ -488,7 +488,7 @@
 (defmethod prompter:object-attributes ((buffer buffer) (source prompter:source))
   (declare (ignore source))
   `(("Title" ,(title buffer))
-    ("Keywords" ,(lambda (buffer) (sleep 1) (write-to-string (keywords buffer))))))
+    ("Keywords" ,(lambda (buffer) (sleep 1) (write-to-string (keywords buffer))) :misc-option)))
 
 (define-test async-attribute-computation ()
   (let* ((buffer1 (make-instance 'buffer :title "buffer1" :keywords '("foo1" "bar1")))
@@ -517,7 +517,13 @@
                      (prompter:active-attributes
                       (prompter:%current-suggestion prompter)
                       :source (prompter:current-source prompter))
-                     :wait-p t)))))
+                     :wait-p t))
+      (assert-equal '(nil
+                     (:misc-option))
+                    (mapcar #'cddr
+                            (prompter:active-attributes
+                             (prompter:%current-suggestion prompter)
+                             :source (prompter:current-source prompter)))))))
 
 (define-test error-handling ()
   (lpara:task-handler-bind ((error #'continue))
