@@ -306,25 +306,32 @@ See `actions-on-current-suggestion'."
     (default-object-attributes object))
   (:method :around ((object t) (source prompter:source))
     (declare (ignorable source))
-    (loop for attribute in (call-next-method)
-          for key = (first attribute)
-          for value = (second attribute)
-          ;; NOTE: Duplicate keys are bad, because searching the alist by key
-          ;; will always return the first occurrence, and never the second.
-          when (member key keys :test #'string-equal)
-            do (warn "Duplicate attribute names found in ~a: ~a.
+    ;; TODO: New kernel to not overload the `prompter` threads busy with computing `update'?
+    (with-kernel source
+      (loop for attribute in (call-next-method)
+            for key = (first attribute)
+            for value = (second attribute)
+            ;; NOTE: Duplicate keys are bad, because searching the alist by key
+            ;; will always return the first occurrence, and never the second.
+            when (member key keys :test #'string-equal)
+              do (warn "Duplicate attribute names found in ~a: ~a.
 Attribute names should be unique for prompter to correctly filter those."
-                     source key)
-          collect key into keys
-          ;; FIXME: Having six (string-t for keys and string-function-t for
-          ;; values) branches would be more correct, but does that matter enough
-          ;; to bother?
-          if (functionp value)
-            collect (append (list (princ-to-string key) value) (cddr attribute))
-          ;; REVIEW: Can keys actually be non-string? Maybe type those?
-          else if (and (stringp key) (stringp value))
-                 collect attribute
-          else collect (append (list (princ-to-string key) (princ-to-string value)) (cddr attribute))))
+                       source key)
+            collect key into keys
+            ;; FIXME: Having six (string-t for keys and string-function-t for
+            ;; values) branches would be more correct, but does that matter enough
+            ;; to bother?
+            if (functionp value)
+              collect (append (list (princ-to-string key)
+                                    (lpara:future
+                                      (handler-case (funcall (second attribute) object)
+                                        (error (c)
+                                          (format nil "keyword error: ~a" c)))))
+                              (cddr attribute))
+            ;; REVIEW: Can keys actually be non-string? Maybe type those?
+            else if (and (stringp key) (stringp value))
+                   collect attribute
+            else collect (append (list (princ-to-string key) (princ-to-string value)) (cddr attribute)))))
   (:method ((object hash-table) (source prompter:source))
     (declare (ignorable source))
     (let ((result))
@@ -452,7 +459,12 @@ Suggestions are made with the `suggestion-maker' slot from `source'."))
              :always (keywordp x))))
 
 (defun object-attributes-p (object)
-  (undotted-alist-p object '(or string function)))
+  (and (listp object)
+       (every #'listp object)
+       (every #'listp (mapcar #'rest object))
+       (every (lambda (e) (or (not (lpara:fulfilledp (first e)))
+                              (typep (first e) '(or string function))))
+              (mapcar #'rest object))))
 
 (defmethod attribute-key ((attribute t))
   (first attribute))
@@ -465,7 +477,7 @@ Otherwise return a `lparallel:future' it the attribute is not done calculating."
   (if (or wait-p
           (lpara:fulfilledp (second attribute)))
       (lpara:force (second attribute))
-      (second attribute)))
+      ""))
 
 (defmethod attributes-keys ((attributes t))
   (mapcar #'attribute-key attributes))
@@ -677,24 +689,10 @@ Active attributes are attributes whose keys are listed in the
   (let ((inactive-keys (set-difference (attributes-keys (attributes suggestion))
                                        (active-attributes-keys source)
                                        :test #'string=)))
-    ;; TODO: New kernel to not overload the `prompter` threads busy with computing `update'?
-    (with-kernel source
-      (mapcar
-       (lambda (attribute)
-         ;; TODO: Notify when done updating, maybe using `update-notifier'?
-         (if (functionp (second attribute))
-             (append (list
-                      (attribute-key attribute)
-                      (lpara:future
-                        (handler-case (funcall (second attribute) (value suggestion))
-                          (error (c)
-                            (format nil "keyword error: ~a" c)))))
-                     (cddr attribute))
-             attribute))
-       (remove-if
-        (lambda (attr)
-          (find (attribute-key attr) inactive-keys :test #'string=))
-        (attributes suggestion))))))
+    (remove-if
+     (lambda (attr)
+       (find (attribute-key attr) inactive-keys :test #'string=))
+     (attributes suggestion))))
 
 (export-always 'marked-p)
 (defun marked-p (source value)
