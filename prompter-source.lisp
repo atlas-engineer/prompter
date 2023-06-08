@@ -650,7 +650,7 @@ If you are looking for a source that just returns its plain suggestions, use `so
 (export-always 'attributes-default)
 (define-generic attributes-default ((suggestion suggestion))
   "Return SUGGESTION default attribute value."
-  (second (first (attributes suggestion))))
+  (attribute-value (first (attributes suggestion))))
 
 (export-always 'attributes-non-default)
 (define-generic attributes-non-default ((suggestion suggestion))
