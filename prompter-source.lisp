@@ -640,8 +640,8 @@ If you are looking for a source that just returns its plain suggestions, use `so
 
 (export-always 'attributes-non-default)
 (define-generic attributes-non-default ((suggestion suggestion))
-  (rest (attributes suggestion))
-  (:documentation "Return SUGGESTION non-default attributes."))
+  "Return SUGGESTION non-default attributes."
+  (rest (attributes suggestion)))
 
 (defmethod attributes-keys ((source source))
   (attributes-keys
