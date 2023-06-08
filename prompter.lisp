@@ -163,6 +163,7 @@ computation is not finished.")))
           ;; Killing tasks is blocking and thus slow.
           ;; Ending the kernel (with :WAIT NIL) is fast because it happens in a
           ;; separate thread (the shutdown manager).
+          ;; TODO: What if the thread is hung?
           (lpara:end-kernel))
         (setf (kernel prompter) (lpara:make-kernel
                                  (cpu-count)
@@ -272,6 +273,9 @@ Signal destruction by transfering a `canceled' condition to the `result' listene
       (lpara:task-handler-bind ((error #'lpara:invoke-transfer-error))
         (lpara:fulfill (slot-value prompter 'result)
           (lpara:chain (lpara:future (error 'canceled))))))
+    ;; Wait for result, otherwise above future may not be ready before the
+    ;; kernel is killed.
+    (ignore-errors (lpara:force (slot-value prompter 'result)))
     (lpara:kill-tasks :default)
     (lpara:end-kernel))              ; TODO: Wait?
   (setf (kernel prompter) nil))
