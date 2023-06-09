@@ -466,7 +466,9 @@ Suggestions are made with the `suggestion-maker' slot from `source'."))
                               (typep (first e) '(or string function))))
               (mapcar #'rest object))))
 
-(defmethod attribute-key ((attribute t))
+(export-always 'attribute-key)
+(define-generic attribute-key ((attribute t))
+  "Return the attribute key."
   (first attribute))
 
 (export-always 'attribute-value)
@@ -479,7 +481,9 @@ Otherwise return a `lparallel:future' it the attribute is not done calculating."
       (lpara:force (second attribute))
       ""))
 
-(defmethod attributes-keys ((attributes t))
+(export-always 'attributes-keys)
+(define-generic attributes-keys ((attributes t))
+  "Return the list of ATTRIBUTES keys."
   (mapcar #'attribute-key attributes))
 
 (export-always 'attributes-values)
