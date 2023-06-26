@@ -14,6 +14,7 @@
                lparallel
                moptilities
                nclasses
+               nhooks
                serapeum
                str
                trivial-package-local-nicknames)
