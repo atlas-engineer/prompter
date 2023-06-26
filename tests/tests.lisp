@@ -102,15 +102,22 @@
          (source (make-instance 'prompter:source
                                 :name "Test source"
                                 :constructor suggestion-values
-                                :filter #'slow-identity-match)))
-    (with-collected-prompter (prompter (prompter:make :sources source))
+                                :filter #'slow-identity-match))
+         (results (lparallel.queue:make-queue))
+         (hook (make-instance
+                'nhooks:hook-any
+                :handlers (list (make-instance 'nhooks:handler
+                                               :fn (lambda (source) (lpara.queue:push-queue (prompter:ready-p source) results))
+                                               :name 'prompter-tester)))))
+    (with-collected-prompter (prompter (prompter:make :sources source
+                                                      :update-hook hook))
+      (lpara.queue:pop-queue results)
+      (assert-equal t (lpara.queue:pop-queue results))
       (setf (prompter:input prompter) "foo")
-      ;; FIXME: Lparallel does not have `fair-alt' / `select' to pick first ready-channel.
-      (assert-false (prompter:next-ready-p prompter :wait-p nil))
-      (lpara.queue:pop-queue (prompter:update-notifier source))
-      (assert-false (prompter:next-ready-p prompter :wait-p nil))
-      (lpara.queue:pop-queue (prompter:update-notifier source))
-      (assert-true (prompter:next-ready-p prompter :wait-p nil)))))
+      (assert-equal '(nil nil t) (list
+                                  (lpara.queue:pop-queue results)
+                                  (lpara.queue:pop-queue results)
+                                  (lpara.queue:pop-queue results))))))
 
 (define-test asynchronous-suggestion-interrupt ()
   (let* ((suggestion-values '("foobar" "foobaz"))

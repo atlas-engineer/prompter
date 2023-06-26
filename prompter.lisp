@@ -114,6 +114,17 @@ Caller should handle the `prompter-interrupt' condition.")
       :documentation "Sources that are ready for display.
 This is used to know when a promper is done with all sources.")
 
+     (update-hook
+      (make-instance 'nhooks:hook-any)
+      :type nhooks:hook-any
+      :export t
+      :documentation "Hook run each time a change is seen in the prompter.
+In particular, it is run when `filter' commits a change to `suggestion's after
+`notification-delay' has passed.
+
+The handler are passed the source that saw a change.
+The source object may have been `destroy'ed.")
+
      (returned-p
       nil
       :type boolean
@@ -153,12 +164,6 @@ computation is not finished.")))
 
 (defmethod initialize-instance :after ((prompter prompter) &key sources
                                        &allow-other-keys)
-  (unless (stringp (prompt prompter))
-    (setf (prompt prompter) (write-to-string (prompt prompter))))
-  (unless (stringp (input prompter))
-    (setf (input prompter) (write-to-string (input prompter))))
-  (dolist (source (sources prompter))
-    (setf (prompter source) prompter))
   (flet ((ensure-sources (specifiers)
            (mapcar (lambda (source-specifier)
                      (cond
@@ -170,6 +175,12 @@ computation is not finished.")))
                        (t (error "Bad source specifier ~s." source-specifier))))
                    (uiop:ensure-list specifiers))))
     (alex:appendf (sources prompter) (ensure-sources sources)))
+  (dolist (source (sources prompter))
+    (setf (prompter source) prompter))
+  (unless (stringp (prompt prompter))
+    (setf (prompt prompter) (write-to-string (prompt prompter))))
+  (unless (stringp (input prompter))
+    (setf (input prompter) (write-to-string (input prompter))))
   (first-suggestion prompter)
   (maybe-funcall (constructor prompter) prompter)
   (update-sources prompter (input prompter))

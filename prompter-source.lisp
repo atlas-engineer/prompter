@@ -201,14 +201,6 @@ function for the public interface.
 For convenience, it may be initialized with a single function or symbol, in
 which case it will be automatically turned into a list.")
 
-   (update-notifier
-    (lpara.queue:make-queue)
-    :type lpara.queue:queue
-    :documentation "A channel which is written to when `filter' commits a change
-to `suggestion's.  A notification is only sent if at least `notification-delay'
-has passed.  This is useful so that clients don't have to poll `suggestion's for
-changes.")
-
    (notification-delay
     0.1
     :type alex:non-negative-real
@@ -747,7 +739,8 @@ non-nil."
 
 (define-generic destroy ((source source))
   "Clean up the source.
-SOURCE should not be used once this has been run."
+SOURCE should not be used in a prompter once this has been run, but its
+`suggestions' can still be accessed."
   (maybe-funcall (destructor source) source)
   (alex:when-let ((lpara:*kernel* (slot-value source 'kernel)))
     (lpara:kill-tasks :default)
@@ -771,60 +764,66 @@ terminated.
 The reason we filter in 3 stages is to allow both for asynchronous and
 synchronous filtering.  The benefit of asynchronous filtering is that it sends
 feedback to the user while the list of suggestions is being computed."
-  (flet ((wait-for-initial-suggestions ()
-           (unless (or (initial-suggestions source)
-                       (not (constructor source)))
-             (setf (slot-value source 'initial-suggestions)
-                   (lpara:receive-result (initial-suggestions-channel source)))))
-         (preprocess (initial-suggestions-copy)
-           (if (filter-preprocessor source)
-               (ensure-suggestions-list
-                source
-                (funcall (filter-preprocessor source)
-                         initial-suggestions-copy source input))
-               initial-suggestions-copy))
-         (process! (preprocessed-suggestions)
-           (let ((last-notification-time (get-internal-real-time)))
-             ;; `last-notification-time' is needed to check if
-             ;; `notification-delay' was exceeded, after which `update-notifier'
-             ;; is notified.
-             (setf (slot-value source 'suggestions) '())
-             (if (or (str:empty? input)
-                     (not (filter source)))
-                 (setf (slot-value source 'suggestions) preprocessed-suggestions)
-                 (dolist (suggestion preprocessed-suggestions)
-                   (alex:when-let ((suggestion (funcall (filter source) suggestion source input)))
-                     (setf (slot-value source 'suggestions)
-                           (insert-item-at suggestion (sort-predicate source)
-                                           (suggestions source)))
-                     (let* ((now (get-internal-real-time))
-                            (duration (/ (- now last-notification-time)
-                                         internal-time-units-per-second)))
-                       (when (or (> duration (notification-delay source))
-                                 (= (length (slot-value source 'suggestions))
-                                    (length preprocessed-suggestions)))
-                         (lpara.queue:push-queue t (update-notifier source))
-                         (setf last-notification-time now))))))))
-         (postprocess! ()
-           (when (filter-postprocessor source)
-             (setf (slot-value source 'suggestions)
-                   (ensure-suggestions-list
-                    source
-                    (maybe-funcall (filter-postprocessor source)
-                                   (slot-value source 'suggestions)
-                                   source
-                                   input))))))
+  (labels ((run-hook (source)
+             (lpara:future (funcall (update-hook (prompter source)) source)))
+           (wait-for-initial-suggestions ()
+             (unless (or (initial-suggestions source)
+                         (not (constructor source)))
+               (setf (slot-value source 'initial-suggestions)
+                     (lpara:receive-result (initial-suggestions-channel source)))))
+           (preprocess (initial-suggestions-copy)
+             (if (filter-preprocessor source)
+                 (ensure-suggestions-list
+                  source
+                  (funcall (filter-preprocessor source)
+                           initial-suggestions-copy source input))
+                 initial-suggestions-copy))
+           (process! (preprocessed-suggestions)
+             (let ((last-notification-time (get-internal-real-time)))
+               ;; `last-notification-time' is needed to check if
+               ;; `notification-delay' was exceeded, after which `update-notifier'
+               ;; is notified.
+               (setf (slot-value source 'suggestions) '())
+               (if (or (str:empty? input)
+                       (not (filter source)))
+                   (setf (slot-value source 'suggestions) preprocessed-suggestions)
+                   (dolist (suggestion preprocessed-suggestions)
+                     (alex:when-let ((suggestion (funcall (filter source) suggestion source input)))
+                       (setf (slot-value source 'suggestions)
+                             (insert-item-at suggestion (sort-predicate source)
+                                             (suggestions source)))
+                       (let* ((now (get-internal-real-time))
+                              (duration (/ (- now last-notification-time)
+                                           internal-time-units-per-second)))
+                         (when (or (> duration (notification-delay source))
+                                   (= (length (slot-value source 'suggestions))
+                                      (length preprocessed-suggestions)))
+                           (run-hook source)
+                           (setf last-notification-time now))))))))
+           (postprocess! ()
+             (when (filter-postprocessor source)
+               (setf (slot-value source 'suggestions)
+                     (ensure-suggestions-list
+                      source
+                      (maybe-funcall (filter-postprocessor source)
+                                     (slot-value source 'suggestions)
+                                     source
+                                     input))))))
     (unwind-protect
          (progn
            (setf (slot-value source 'ready-p) nil)
            (wait-for-initial-suggestions)
            (setf (last-input-downcase-p source) (current-input-downcase-p source))
            (setf (current-input-downcase-p source) (str:downcasep input))
+           (run-hook source)
            (process!
             (preprocess
              ;; We copy the list of initial-suggestions so that the
              ;; preprocessor cannot modify them.
              (mapcar #'copy-object (initial-suggestions source))))
            (postprocess!))
-      (setf (slot-value source 'ready-p) t)))
+      (setf (slot-value source 'ready-p) t)
+      ;; Also run hook once SOURCE is ready, so that handlers can reliably check
+      ;; for `ready-p'.
+      (run-hook source)))
   source)
