@@ -81,7 +81,7 @@ This list is never modified after initialization.")
     :documentation "The current list of suggestions.
 It's updated asynchronously every time the prompter input is changed.
 The slot is readable even when the computation hasn't finished.
-See `ready-notifier' to know when the list is final.
+See `ready-p' to know when the list is final.
 See `update-notifier' to know when it has been updated, to avoid polling the
 list.")
 
@@ -219,6 +219,7 @@ changes.")
     nil
     :type boolean
     :export t
+    :reader t
     :initarg nil
     :documentation "Whether the source is done computing its suggestions.  See
 also `next-ready-p' and `all-ready-p' to wait until ready.")
@@ -765,7 +766,7 @@ terminated.
   the last `suggestion' has been processed.
 - Last the `filter-postprocessor' is run the SOURCE and the INPUT.
   Its return value is assigned to the list of suggestions.
-- Finally, `ready-notifier' is fired up.
+- Finally, `ready-p' is set to T.
 
 The reason we filter in 3 stages is to allow both for asynchronous and
 synchronous filtering.  The benefit of asynchronous filtering is that it sends
@@ -815,7 +816,7 @@ feedback to the user while the list of suggestions is being computed."
                                    input))))))
     (unwind-protect
          (progn
-           (setf (ready-p source) nil)
+           (setf (slot-value source 'ready-p) nil)
            (wait-for-initial-suggestions)
            (setf (last-input-downcase-p source) (current-input-downcase-p source))
            (setf (current-input-downcase-p source) (str:downcasep input))
@@ -825,5 +826,5 @@ feedback to the user while the list of suggestions is being computed."
              ;; preprocessor cannot modify them.
              (mapcar #'copy-object (initial-suggestions source))))
            (postprocess!))
-      (setf (ready-p source) t)))
+      (setf (slot-value source 'ready-p) t)))
   source)
