@@ -17,6 +17,20 @@
        (prompter:destroy ,prompter-var))))
 
 
+(define-test test-funcall-with-delay ()
+  (let* ((q (lpara.queue:make-queue))
+         (f (lpara:future (prompter::funcall-with-delay #'identity q 0.1))))
+    (lpara.queue:push-queue "a" q)
+    (sleep 0.01)
+    (lpara.queue:push-queue "b" q)
+    (sleep 0.02)
+    (lpara.queue:push-queue "c" q)
+    (sleep 0.03)
+    (lpara.queue:push-queue "d" q)
+    (sleep 0.12)
+    (lpara.queue:push-queue "e" q)
+    (assert-equal "d" (lpara:force f))))
+
 (define-test prompter-init ()
   (with-collected-prompter (prompter (prompter:make :sources (make-instance 'prompter:source
                                                                             :name "Test source"
@@ -151,6 +165,31 @@
         (prompter:all-ready-p prompter)
         (let ((before-input (get-internal-real-time)))
           (dolist (input inputs)
+            (setf (prompter:input prompter) input))
+          ;; Consecutive inputs happened fast enough
+          (assert-equality #'<
+                           0.01     ; Slow ECL should be fine here even on a CI.
+                           (/ (- (get-internal-real-time) before-input)
+                              internal-time-units-per-second))
+          (prompter:all-ready-p prompter))))))
+
+(define-test spam-input2 ()
+  (let* ((suggestion-values '("foobar" "foobaz"))
+         (source (make-instance 'prompter:source
+                                :name "Test source"
+                                :constructor suggestion-values
+                                ;; :filter #'slow-identity-match
+                                )))
+    (with-collected-prompter (prompter (prompter:make :sources source
+                                                      :input-delay 0.01))
+      (let ((inputs (mapcar (lambda (&rest _)
+                              (declare (ignore _))
+                              (princ-to-string (random 100000)))
+                            (alex:iota 100))))
+        (prompter:all-ready-p prompter)
+        (let ((before-input (get-internal-real-time)))
+          (dolist (input inputs)
+            (sleep 0.001)
             (setf (prompter:input prompter) input))
           ;; Consecutive inputs happened fast enough
           (assert-equality #'<

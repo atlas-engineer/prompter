@@ -747,6 +747,16 @@ SOURCE should not be used in a prompter once this has been run, but its
     (lpara:end-kernel)
     (setf (kernel source) nil)))
 
+(defun funcall-with-delay (fun queue delay)
+  "Call FUN over the last element of QUEUE after DELAY has expired since last pop."
+  (labels ((drain-queue (queue delay &optional last-input)
+             (multiple-value-bind (input non-empty?)
+                 (lpara.queue:try-pop-queue queue :timeout delay)
+               (if non-empty?
+                   (drain-queue queue delay input)
+                   last-input))))
+    (funcall fun (drain-queue queue delay))))
+
 (defun update (source input)            ; TODO: Store `input' in the source?
   "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
 If a previous `suggestion' computation was not finished, it is forcefully
