@@ -3,27 +3,6 @@
 
 (in-package :prompter)
 
-(define-class sync-queue ()
-  ((ready-sources
-    '()
-    :type list
-    :export nil
-    :documentation "List of ready sources.")
-   (ready-channel
-    (make-channel nil)
-    :type calispel:channel
-    :export nil
-    :documentation "Communication channel with the `update' thread.")
-   (sync-interrupt-channel
-    (make-channel)
-    :type calispel:channel
-    :export nil
-    :documentation "This channel can be used to stop the queue listening."))
-  (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
-  (:documentation "This object is used to memorize which sources are ready for a
-given input.
-A new object is created on every new input."))
-
 (defvar *default-history-size* 1000)    ; TODO: Export?
 
 (declaim (ftype (function (&key (:size fixnum)) containers:ring-buffer-reverse) make-history))
@@ -31,6 +10,12 @@ A new object is created on every new input."))
   "Return a new ring buffer."
   (the (values cl-containers:ring-buffer-reverse &optional)
        (containers:make-ring-buffer size :last-in-first-out)))
+
+(let ((count nil))
+  (defun cpu-count ()                   ; REVIEW: Not needed since Serapeum 2023-05-24.
+    (unless count
+      (setf count (or (serapeum:count-cpus) 1)))
+    count))
 
 ;; Eval at read-time because `make' is generated using the class' initargs.
 (sera:eval-always
@@ -40,6 +25,22 @@ A new object is created on every new input."))
       :accessor nil
       :reader input
       :documentation "User input.")
+     (input-delay
+      ;; Auto-repeat values on Xorg can be queried with
+      ;;   xset q
+      ;; and set with
+      ;;   xset r rate 240 50
+      ;; A frequency of 50Hz means a delay of 0.020s between repeats.
+      ;; Defaults to 25 (0.040s).
+      0.045
+      :type float
+      :documentation "When input is changed, time after which the source is updated.
+This is useful to avoid updating the sources during fast typing.")
+     (input-reader
+      nil
+      :export nil
+      :documentation "Thread that oversees input reading.
+See `input-delay'.")
 
      (prompt
       ""
@@ -98,23 +99,43 @@ automatically runs when the suggestions are narrowed down to just one item.")
       :documentation "History of inputs for the prompter.
 If nil, no history is used.")
 
-     (result-channel
-      (make-channel 1)
-      :type calispel:channel
-      :documentation "Channel to which the `current-suggestion' is sent on exit.
-Caller should also listen to `interrupt-channel' to know if the prompter was cancelled.")
+     (result
+      (lpara:promise)
+      :accessor nil
+      :export t
+      :documentation "The `current-suggestion' returned on exit.  Use the reader
+to block until the prompter is returned.
+Use `slot-value' to manipulate the low-level asynchronous structure;
+beware the API may change.
+Caller should handle the `prompter:canceled' condition.")
 
-     (interrupt-channel
-      (make-channel 1)
-      :type calispel:channel
-      :documentation "Channel to which an arbitrary value is written on exit.
-See also `result-channel'.")
-
-     (sync-queue
+     (kernel
       nil
-      :type (or null sync-queue)
+      :type (or null lpara:kernel)
       :export nil
-      :documentation "See `sync-queue' class documentation.")
+      :documentation "Lparallel kernel for the current source calculation.
+We use a new kernel for each update to avoid race conditions and useless waiting.")
+
+     (ready-sources
+      nil
+      :type (or null lpara.queue:queue)
+      :export nil)
+
+     (source-updater
+      nil
+      :export nil
+      :documentation "Thread that oversees source updating.")
+
+     (update-hook
+      (make-instance 'nhooks:hook-any)
+      :type nhooks:hook-any
+      :export t
+      :documentation "Hook run each time a change is seen in the prompter.
+In particular, it is run when `filter' commits a change to `suggestion's after
+`notification-delay' has passed.
+
+The handler are passed the source that saw a change.
+The source object may have been `destroy'ed.")
 
      (returned-p
       nil
@@ -131,21 +152,56 @@ Call `destroy' to the register termination functions of the prompter and its
 sources.
 
 `suggestion's are computed asynchronously when `input' is updated.
-Use `all-ready-p' and `next-ready-p' to access whether the prompter is ready.
+Use `all-ready-p' and `next-ready-p' to assess whether the prompter is ready.
 Sources' suggestions can be retrieved, possibly partially, even when the
 computation is not finished.")))
 
-(defun update-sources (prompter &optional (text ""))
-  (setf (sync-queue prompter) (make-instance 'sync-queue))
-  (mapc (lambda (source) (update source text (ready-channel (sync-queue prompter))))
-        (sources prompter)))
+(define-generic result ((prompter prompter))
+  "Block and return PROMPTER's `result'."
+  (lpara:force (slot-value prompter 'result)))
+
+(defun update-sources (prompter)
+  ;; TODO: Add argment to bypass sleep? (May be useful on initialization.)
+  (sera:synchronized (prompter)
+    (when (or (not (input-reader prompter)) ;
+              (lpara:fulfilledp (input-reader prompter)))
+      (when (or (not (kernel prompter))
+                (and (input-reader prompter) ; TODO: Move to initialization if we don't call `lpara:end-kernel' ?
+                     (lpara:fulfilledp (input-reader prompter))
+                     (source-updater prompter)
+                     (not (lpara:fulfilledp (source-updater prompter)))))
+        (with-kernel prompter
+          ;; Killing tasks is blocking and thus slow.
+          ;; Ending the kernel (with :WAIT NIL) is fast because it happens in a
+          ;; separate thread (the shutdown manager).
+          ;; TODO: What if the thread is hung?
+          (lpara:end-kernel))
+        (setf (kernel prompter) (lpara:make-kernel
+                                 (cpu-count)
+                                 :name (format nil "prompter-~a-~a"
+                                               (let ((title (prompt prompter)))
+                                                 (if (uiop:emptyp title)
+                                                     "anonymous"
+                                                     title))
+                                               (gensym "")))))
+      (setf (ready-sources prompter) (lpara.queue:make-queue))
+      (with-kernel prompter
+        (setf (input-reader prompter)
+              (lpara:future
+                (sleep (input-delay prompter))
+                (setf (source-updater prompter)
+                      (lpara:future
+                        (let ((text (slot-value prompter 'input)))
+                          (prog1 (lpara:pmapcar
+                                  (lambda (source)
+                                    (update source text)
+                                    (lpara.queue:push-queue source (ready-sources prompter))
+                                    source)
+                                  (sources prompter))
+                            (first-suggestion prompter)))))))))))
 
 (defmethod initialize-instance :after ((prompter prompter) &key sources
                                        &allow-other-keys)
-  (unless (stringp (prompt prompter))
-    (setf (prompt prompter) (write-to-string (prompt prompter))))
-  (unless (stringp (input prompter))
-    (setf (input prompter) (write-to-string (input prompter))))
   (flet ((ensure-sources (specifiers)
            (mapcar (lambda (source-specifier)
                      (cond
@@ -153,13 +209,19 @@ computation is not finished.")))
                         source-specifier)
                        ((and (symbolp source-specifier)
                              (c2cl:subclassp source-specifier 'source))
-                        (make-instance source-specifier))
+                        (make-instance source-specifier :prompter prompter))
                        (t (error "Bad source specifier ~s." source-specifier))))
                    (uiop:ensure-list specifiers))))
     (alex:appendf (sources prompter) (ensure-sources sources)))
+  (dolist (source (sources prompter))
+    (setf (prompter source) prompter))
+  (unless (stringp (prompt prompter))
+    (setf (prompt prompter) (write-to-string (prompt prompter))))
+  (unless (stringp (input prompter))
+    (setf (input prompter) (write-to-string (input prompter))))
   (first-suggestion prompter)
   (maybe-funcall (constructor prompter) prompter)
-  (update-sources prompter (input prompter))
+  (update-sources prompter)
   prompter)
 
 (defmethod (setf current-suggestion) (value (prompter prompter))
@@ -178,7 +240,7 @@ computation is not finished.")))
                     (suggestion (%current-suggestion prompter)))
       (let ((delay (actions-on-current-suggestion-delay source)))
         (if (plusp delay)
-            (run-thread "Prompter current suggestion action thread"
+            (lpara:future
               (sleep delay)
               (funcall action (value suggestion)))
             (funcall action (value suggestion))))))
@@ -196,27 +258,38 @@ See also `run-action-on-current-suggestion'."))
 
 (export-always 'input)
 (defmethod (setf input) (text (prompter prompter))
-  "Update PROMPTER sources and return TEXT."
-  (let ((old-input (slot-value prompter 'input)))
-    (unless (string= old-input text)
-      (setf (slot-value prompter 'input) text)
-      (update-sources prompter text)
-      (first-suggestion prompter)))
+  "Update PROMPTER sources and return TEXT.
+This is non-blocking: the source update is done in parallel."
+  (unless (string= (slot-value prompter 'input) text)
+    (setf (slot-value prompter 'input) text)
+    (update-sources prompter))
   text)
+
+(export-always 'canceled)
+(define-condition canceled (error)
+  ()
+  (:documentation "Condition raised in the `result' listener when `destroy' is called."))
 
 (export-always 'destroy)
 (defmethod destroy ((prompter prompter))
   "First call `before-destructor', then call all the source destructors, finally call
 `after-destructor'.
-Signal destruction by sending a value to PROMPTER's `interrupt-channel'."
+Signal destruction by transfering a `canceled' condition to the `result' listener."
   (maybe-funcall (before-destructor prompter))
-  (mapc (lambda (source) (maybe-funcall (destructor source) prompter source))
-        (sources prompter))
   (mapc #'destroy (sources prompter))
   (maybe-funcall (after-destructor prompter))
   ;; TODO: Interrupt before or after destructor?
-  (calispel:! (sync-interrupt-channel (sync-queue prompter)) t)
-  (calispel:! (interrupt-channel prompter) t))
+  (with-kernel prompter
+    (unless (lpara:fulfilledp (slot-value prompter 'result))
+      (lpara:task-handler-bind ((error #'lpara:invoke-transfer-error))
+        (lpara:fulfill (slot-value prompter 'result)
+          (lpara:chain (lpara:future (error 'canceled))))))
+    ;; Wait for result, otherwise above future may not be ready before the
+    ;; kernel is killed.
+    (ignore-errors (lpara:force (slot-value prompter 'result)))
+    (lpara:kill-tasks :default)
+    (lpara:end-kernel))              ; TODO: Wait?
+  (setf (kernel prompter) nil))
 
 (defun set-current-suggestion (prompter steps &key wrap-over-p)
   "Set PROMPTER's `current-suggestion' by jumping STEPS forward.
@@ -416,14 +489,15 @@ If input is already in history, move to first position."
 (defun run-action-on-return (prompter &optional (action-on-return
                                                  (default-action-on-return prompter)))
   "Call ACTION-ON-RETURN over `marks' and send the results to PROMPTER's
-`result-channel'.
+`result'.
 See `resolve-marks' for a reference on how `marks' are handled."
   (unless action-on-return (setf action-on-return #'identity))
   (setf (returned-p prompter) t)
   (add-input-to-history prompter)
   (alex:when-let ((marks (resolve-marks prompter)))
-    (calispel:! (result-channel prompter)
-                (funcall action-on-return marks)))
+    ;; TODO: Wrap waiter in a function?
+    (lpara:fulfill (slot-value prompter 'result)
+      (funcall action-on-return marks)))
   (destroy prompter))
 
 (export-always 'toggle-actions-on-current-suggestion-enabled)
@@ -434,47 +508,44 @@ See `resolve-marks' for a reference on how `marks' are handled."
         (not (actions-on-current-suggestion-enabled-p source))))
 
 (export-always 'next-ready-p)
-(defun next-ready-p (prompter)
+(defun next-ready-p (prompter &key (wait-p t))
   "Block and return next PROMPTER ready source.
 It's the next source that's done updating.
 If all sources are done, return T.
 This is unblocked when the PROMPTER is `destroy'ed."
   (when prompter
-    ;; We let-bind `sync-queue' here so that it remains the same object throughout
-    ;; this function, since the slot is subject to be changed concurrently when
-    ;; the input is edited.
-    (alex:if-let ((sync-queue (sync-queue prompter)))
-      (if (= (length (ready-sources sync-queue))
-             (length (sources prompter)))
-          t
-          (calispel:fair-alt
-            ((calispel:? (ready-channel sync-queue) next-source)
-             (cond
-               ((null next-source)
-                nil)
-               (t
-                (push next-source (ready-sources sync-queue))
-                ;; Update current suggestion when update is done:
-                (first-suggestion prompter)
-                next-source)))
-            ((calispel:? (sync-interrupt-channel sync-queue))
-             nil)))
-      ;; No sync-queue if no input was ever set.
-      t)))
+    (lpara:task-handler-bind ((lpara:task-killed-error (lambda (c)
+                                                         (declare (ignore c))
+                                                         (return-from next-ready-p nil))))
+      (cond
+        ((and (all-ready-p prompter :wait-p nil)
+              (lpara.queue:queue-empty-p (ready-sources prompter)))
+         t)
+        (wait-p
+         (lpara.queue:pop-queue (ready-sources prompter)))
+        (t
+         (lpara.queue:try-pop-queue (ready-sources prompter)
+                                    :timeout 0))))))
 
 (export-always 'all-ready-p)
-(defun all-ready-p (prompter)
-  "Return non-nil when all PROMPTER sources are ready."
-  (sera:nlet check ((next-source (next-ready-p prompter)))
-    (if (typep next-source 'boolean)
-        next-source
-        (check (next-ready-p prompter)))))
+(defun all-ready-p (prompter &key (wait-p t))
+  "Return non-nil when all PROMPTER sources are ready.
+If WAIT-P, block until all sources are ready."
+  (or (null (kernel prompter))
+      (null (input-reader prompter))
+      (with-kernel prompter
+        (if wait-p
+            ;; TODO: Add `lpara:task-handler-bind' to catch destruction?
+            (and (lpara:force (input-reader prompter))
+                 (lpara:force (source-updater prompter)))
+            (and (lpara:fulfilledp (input-reader prompter))
+                 (lpara:fulfilledp (source-updater prompter)))))))
 
 (export-always 'make)
 (define-function make
     (append '(&rest args)
             `(&key sources ,@(public-initargs 'prompter)))
-  "Return `prompter' object.
+  "Return a new `prompter' object.
 The arguments are the initargs of the `prompter' class.
 
 As a special case, the `:sources' keyword argument not only accepts `source'

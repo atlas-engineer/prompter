@@ -9,18 +9,19 @@
   :version "0.1.0"
   :serial t
   :depends-on (alexandria
-               calispel
                cl-containers
                closer-mop
                lparallel
                moptilities
                nclasses
+               nhooks
                serapeum
                str
                trivial-package-local-nicknames)
   :components ((:file "package")
                (:file "filter-preprocessor")
                (:file "filter")
+               (:file "delayed-future")
                (:file "prompter-source")
                (:file "prompter"))
   :in-order-to ((test-op (test-op "prompter/tests")
@@ -38,6 +39,7 @@
   :serial t
   :pathname "tests/"
   :components ((:file "package")
+               (:file "delayed-future")
                (:file "tests")
                (:file "fuzzy")
                (:file "submatches")))
