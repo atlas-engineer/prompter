@@ -16,21 +16,6 @@
      (unwind-protect (progn ,@body)
        (prompter:destroy ,prompter-var))))
 
-
-(define-test test-funcall-with-delay ()
-  (let* ((q (lpara.queue:make-queue))
-         (f (lpara:future (prompter::funcall-with-delay #'identity q 0.1))))
-    (lpara.queue:push-queue "a" q)
-    (sleep 0.01)
-    (lpara.queue:push-queue "b" q)
-    (sleep 0.02)
-    (lpara.queue:push-queue "c" q)
-    (sleep 0.03)
-    (lpara.queue:push-queue "d" q)
-    (sleep 0.12)
-    (lpara.queue:push-queue "e" q)
-    (assert-equal "d" (lpara:force f))))
-
 (define-test prompter-init ()
   (with-collected-prompter (prompter (prompter:make :sources (make-instance 'prompter:source
                                                                             :name "Test source"

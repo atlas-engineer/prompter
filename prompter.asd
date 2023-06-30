@@ -21,6 +21,7 @@
   :components ((:file "package")
                (:file "filter-preprocessor")
                (:file "filter")
+               (:file "delayed-future")
                (:file "prompter-source")
                (:file "prompter"))
   :in-order-to ((test-op (test-op "prompter/tests")
@@ -38,6 +39,7 @@
   :serial t
   :pathname "tests/"
   :components ((:file "package")
+               (:file "delayed-future")
                (:file "tests")
                (:file "fuzzy")
                (:file "submatches")))
