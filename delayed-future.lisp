@@ -3,19 +3,6 @@
 
 (in-package :prompter)
 
-;; (defun funcall-with-delay (fun queue delay)
-;;   "Call FUN over the last element of QUEUE after DELAY has expired since last pop."
-;;   (labels ((drain-queue (queue delay &optional last-input)
-;;              (multiple-value-bind (input non-empty?)
-;;                  (serapeum:synchronized (queue)
-;;                    (lpara.queue:try-pop-queue queue :timeout delay))
-;;                (if non-empty?
-;;                    (drain-queue queue delay input)
-;;                    (setf (drained-p delayed-future) t)
-;;                    last-input))))
-;;     (funcall fun (drain-queue queue delay))))
-
-
 (define-class delayed-future ()
   ((fn
      nil
@@ -38,16 +25,13 @@
      0.0
      :reader t
      :writer nil       ; REVIEW: Does it make sense to allow delay modification?
-     :export t)
+     :export t
+     :documentation "The time in seconds to wait before starting to compute the result.
+The computation is done over the argument last passed through `fulfill'. ")
    (future
      nil
      :accessor nil
-     :export nil)
-   ;; (first-wait-p                        ; TODO: Do we need both drained-p and first-wait-p?
-   ;;   t
-   ;;   :accessor nil
-   ;;   :export nil)
-   )
+     :export nil) )
   (:export-class-name-p t)
   (:export-accessor-names-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
