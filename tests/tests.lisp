@@ -374,6 +374,47 @@
                         (current-suggestion-value)))
       (prompter:all-ready-p prompter))))
 
+(define-test next-and-prev-source ()
+  (with-report-dangling-threads
+    (let ((prompter (prompter:make
+                     :sources (list (make-instance 'prompter:source
+                                                   :name "Test empty source")
+                                    (make-instance 'prompter:source
+                                                   :name "Test source"
+                                                   :constructor '("foo" "bar"))
+                                    (make-instance 'prompter:source
+                                                   :name "Test empty source")
+                                    (make-instance 'prompter:source
+                                                   :name "Test source 2"
+                                                   :constructor '("100 foo" "200"))
+                                    (make-instance 'prompter:source
+                                                   :name "Test source 3"
+                                                   :constructor '("foo" "bar" "baz"))
+                                    (make-instance 'prompter:source
+                                                   :name "Test empty source")))))
+      (prompter:all-ready-p prompter)
+      (assert-false (prompter::adjacent-source prompter :steps 0))
+      (assert-false (prompter::adjacent-source prompter :steps -2))
+      (assert-false (prompter:previous-source-p prompter))
+      (assert-true (prompter:next-source-p prompter))
+      (prompter:previous-source prompter)
+      (assert-false (prompter:previous-source-p prompter))
+      (assert-true (prompter:next-source-p prompter))
+      (prompter:next-source prompter)
+      (assert-true (prompter:next-source-p prompter))
+      (assert-true (prompter:previous-source-p prompter))
+      (prompter:next-source prompter)
+      (assert-false (prompter:next-source-p prompter))
+      (assert-true (prompter:previous-source-p prompter))
+      (prompter:next-source prompter)
+      (assert-false (prompter:next-source-p prompter))
+      (assert-true (prompter:previous-source-p prompter))
+      (prompter:previous-source prompter)
+      (assert-true (prompter:next-source-p prompter))
+      (assert-true (prompter:previous-source-p prompter))
+      (prompter:all-ready-p prompter))))
+
+
 (define-test set-current-suggestion-all-empty-sources ()
   (with-report-dangling-threads
     (let* ((first-empty-source (make-instance 'prompter:source
