@@ -269,23 +269,41 @@ when STEPS is positive (resp. negative)."
 (defun empty-source-p (source)
   (not (suggestions source)))
 
+(export-always 'adjacent-source)
+(defun adjacent-source (prompter &key (steps 1) (source (current-source prompter)))
+  "Return non-nil when PROMPTER has a non-empty source STEPS away from SOURCE.
+
+When STEPS is 0, do nothing.
+When STEPS is negative, go backward."
+  (sera:and-let* ((_ (not (= steps 0)))
+                  (nonempty-sources (remove-if #'empty-source-p (sources prompter)))
+                  (current-source-index (or (position source nonempty-sources)
+                                            0))
+                  (new-source-index (alex:clamp (+ steps current-source-index)
+                                                0
+                                                (1- (length nonempty-sources))))
+                  (_ (not (= current-source-index new-source-index))))
+    (nth new-source-index nonempty-sources)))
+
+(export-always 'next-source-p)
+(defun next-source-p (prompter)
+  "Returns non-nil when PROMPTER has a non-empty next source."
+  (adjacent-source prompter :steps 1))
+
+(export-always 'previous-source-p)
+(defun previous-source-p (prompter)
+  "Returns non-nil when PROMPTER has a non-empty previous source."
+  (adjacent-source prompter :steps -1))
+
 (export-always 'next-source)
 (defun next-source (prompter &optional (steps 1))
   "Set `current-suggestion' after traversing STEPS non-empty sources.
-When STEPS is 0, do nothing.
-The `current-suggestion' is set to be the topmost of the destination source.
 
+The `current-suggestion' is set to be the topmost of the destination source.
 See also `previous-source'."
-  (unless (= 0 steps)
-    (sera:and-let* ((nonempty-sources (remove-if #'empty-source-p (sources prompter)))
-                    (source-index (or (position (current-source prompter)
-                                                nonempty-sources)
-                                      0))
-                    (new-source (nth (alex:clamp (+ steps source-index)
-                                                 0
-                                                 (1- (length nonempty-sources)))
-                                     nonempty-sources)))
-      (setf (current-suggestion prompter) (list new-source 0)))))
+  (alex:if-let ((new-source (adjacent-source prompter :steps steps)))
+    (setf (current-suggestion prompter) (list new-source 0))
+    (current-suggestion prompter)))
 
 (export-always 'previous-source)
 (defun previous-source (prompter &optional (steps 1))
