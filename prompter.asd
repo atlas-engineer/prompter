@@ -23,27 +23,18 @@
                (:file "filter")
                (:file "prompter-source")
                (:file "prompter"))
-  :in-order-to ((test-op (test-op "prompter/tests")
-                         (test-op "prompter/tests/compilation"))))
-
-(defsystem "prompter/submodules"
-  :defsystem-depends-on ("nasdf")
-  :class :nasdf-submodule-system)
+  :in-order-to ((test-op (test-op "prompter/tests"))))
 
 (defsystem "prompter/tests"
-  :defsystem-depends-on ("nasdf")
-  :class :nasdf-test-system
-  :depends-on ("prompter")
-  :targets (:package :prompter/tests)
+  :depends-on ("prompter" "lisp-unit2")
   :serial t
   :pathname "tests/"
   :components ((:file "package")
                (:file "tests")
                (:file "fuzzy")
-               (:file "submatches")))
-
-(defsystem "prompter/tests/compilation"
-  :defsystem-depends-on ("nasdf")
-  :class :nasdf-compilation-test-system
-  :depends-on ("prompter")
-  :packages (:prompter))
+               (:file "submatches"))
+  :perform (test-op (op c)
+                    (eval-input
+                     "(lisp-unit2:run-tests
+                       :package :prompter/tests
+                       :run-contexts #'lisp-unit2:with-summary-context)")))
