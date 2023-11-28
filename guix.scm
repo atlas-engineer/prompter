@@ -3,36 +3,17 @@
 
 ;;; Commentary:
 ;;
-;; GNU Guix development package.  To build and install, clone this repository,
-;; switch directory to here and run:
+;; GNU Guix development package.  To start the REPL:
 ;;
-;;   guix package --install-from-file=guix.scm
-;;
-;; To start the REPL:
-;;
-;;   guix shell -f guix.scm sbcl -- sbcl
+;;   guix shell -f path/to/guix.scm sbcl -- sbcl
 ;;
 ;;; Code:
 
 (use-modules (guix packages)
              (guix gexp)
-             (guix build-system asdf)
-             (gnu packages)
-             (gnu packages lisp)
              (gnu packages lisp-xyz))
 
-(define-public sbcl-prompter-dev
-  (package
-    (inherit sbcl-prompter)
-    (source
-     (local-file (dirname (current-filename))
-                 #:recursive? #t
-                 #:select? (lambda (file stat) (not (string=? (basename file) "nasdf")))))))
-
-(define-public cl-prompter-dev
-  (sbcl-package->cl-source-package sbcl-prompter-dev))
-
-(define-public ecl-prompter-dev
-  (sbcl-package->ecl-package sbcl-prompter-dev))
-
-cl-prompter-dev
+(package
+  (inherit cl-prompter)
+  (version "dev")
+  (source (local-file (dirname (current-filename)) #:recursive? #t)))
