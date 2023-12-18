@@ -470,18 +470,17 @@ It's the next source that's done updating.
 If all sources are done, return T.
 This is unblocked when the PROMPTER is `destroy'ed."
   (when prompter
-    (block nil
-      (lpara:task-handler-bind ((lpara:task-killed-error (lambda (c)
-                                                           (declare (ignore c))
-                                                           (return nil))))
-        (if (= (length (ready-sources prompter)) (length (sources prompter)))
-            t
-            (alex:when-let ((source (if wait-p
-                                        (lpara:receive-result (ready-sources-channel prompter))
-                                        (lpara:try-receive-result (ready-sources-channel prompter)
-                                                                  :timeout 0))))
-              (push source (ready-sources prompter))
-              source))))))
+    (lpara:task-handler-bind ((lpara:task-killed-error (lambda (c)
+                                                         (declare (ignore c))
+                                                         (return-from next-ready-p nil))))
+      (if (= (length (ready-sources prompter)) (length (sources prompter)))
+          t
+          (alex:when-let ((source (if wait-p
+                                      (lpara:receive-result (ready-sources-channel prompter))
+                                      (lpara:try-receive-result (ready-sources-channel prompter)
+                                                                :timeout 0))))
+            (push source (ready-sources prompter))
+            source)))))
 
 (export-always 'all-ready-p)
 (defun all-ready-p (prompter)
