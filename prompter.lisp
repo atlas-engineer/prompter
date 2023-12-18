@@ -236,6 +236,9 @@ Signal destruction by transfering a `canceled' condition to the `result' listene
       (lpara:task-handler-bind ((error #'lpara:invoke-transfer-error))
         (lpara:fulfill (slot-value prompter 'result)
           (lpara:chain (lpara:future (error 'canceled))))))
+    ;; Wait for result, otherwise above future may not be ready before the
+    ;; kernel is killed.
+    (ignore-errors (lpara:force (slot-value prompter 'result)))
     (lpara:kill-tasks :default)
     (lpara:end-kernel))              ; TODO: Wait?
   (setf (kernel prompter) nil))
