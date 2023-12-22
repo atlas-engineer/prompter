@@ -3,13 +3,15 @@
 
 (uiop:define-package :prompter
   (:use :common-lisp)
-  (:import-from :nclasses #:define-class)
+  (:import-from :nclasses #:define-class #:define-generic)
   (:import-from :serapeum #:export-always))
 (in-package prompter)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (trivial-package-local-nicknames:add-package-local-nickname :alex :alexandria)
-  (trivial-package-local-nicknames:add-package-local-nickname :sera :serapeum))
+  (trivial-package-local-nicknames:add-package-local-nickname :sera :serapeum)
+  (trivial-package-local-nicknames:add-package-local-nickname :lpara :lparallel)
+  (trivial-package-local-nicknames:add-package-local-nickname :lpara.queue :lparallel.queue))
 
 (defmacro define-function (name args &body body)
   "Eval ARGS then define function over the resulting lambda list.
@@ -21,6 +23,13 @@ All ARGS are declared as `ignorable'."
                                              lambda-list-keywords)))
        ,@body)))
 
+(defun slot-names (class-specifier)
+  ;; TODO: `slot-names' or `direct-slot-names'?
+  #-ecl
+  (mopu:slot-names class-specifier)
+  #+ecl
+  (mapcar #'c2mop:slot-definition-name (c2mop:class-slots (find-class class-specifier))))
+
 (defun initargs (class-specifier)
   "Return CLASS-SPECIFIER initargs as symbols (not keywords)."
   (delete nil
@@ -29,11 +38,7 @@ All ARGS are declared as `ignorable'."
                      (symbol-name
                       (first (getf (mopu:slot-properties class-specifier slot) :initargs)))
                      (symbol-package class-specifier)))
-                  ;; TODO: `slot-names' or `direct-slot-names'?
-                  #-ecl
-                  (mopu:slot-names class-specifier)
-                  #+ecl
-                  (mapcar #'c2mop:slot-definition-name (c2mop:class-slots (find-class 'prompter))))))
+                  (slot-names class-specifier))))
 
 (defun exported-p (sym)
   (eq :external
@@ -46,4 +51,4 @@ All ARGS are declared as `ignorable'."
 (export-always '*debug-on-error*)
 (defvar *debug-on-error* nil
   "When non-nil, the Lisp debugger is invoked when a condition is raised.
-Otherwise all errors occuring in threads are demoted to warnings.")
+Otherwise all errors occurring in threads are demoted to warnings.")

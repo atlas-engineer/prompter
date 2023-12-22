@@ -10,14 +10,6 @@
 	path = _build/symbol-munger
 	url = https://github.com/AccelerationNet/symbol-munger
 	shallow = true
-[submodule "_build/calispel"]
-	path = _build/calispel
-	url = https://github.com/hawkir/calispel
-	shallow = true
-[submodule "_build/cl-jpl-util"]
-	path = _build/cl-jpl-util
-	url = https://github.com/hawkir/cl-jpl-util
-	shallow = true
 [submodule "_build/cl-containers"]
 	path = _build/cl-containers
 	url = https://github.com/gwkkwg/cl-containers
@@ -170,11 +162,11 @@
 	path = _build/trivial-package-local-nicknames
 	url = https://github.com/phoe/trivial-package-local-nicknames
 	shallow = true
-[submodule "_build/jpl-queues"]
-	path = _build/jpl-queues
-	url = https://gitlab.common-lisp.net/nyxt/jpl-queues.git
-	shallow = true
 [submodule "_build/mt19937"]
 	path = _build/mt19937
 	url = https://gitlab.common-lisp.net/nyxt/mt19937
+	shallow = true
+[submodule "_build/nhooks"]
+	path = _build/nhooks
+	url = https://github.com/atlas-engineer/nhooks
 	shallow = true
