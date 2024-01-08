@@ -328,7 +328,7 @@ call."))
 (defmethod (setf marks) (value (source prompter:source))
   (setf (slot-value source 'marks) value)
   (sera:and-let* ((action (alex:ensure-function (first (actions-on-marks source))))
-                  (not (eq #'identity action)))
+                  (_ (not (eq #'identity action))))
     (run-thread "Prompter marks action thread"
       (funcall action (marks source)))))
 
