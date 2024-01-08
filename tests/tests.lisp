@@ -198,6 +198,24 @@
         (assert-equal '("bar")
                       (calispel:? (prompter:result-channel prompter)))))))
 
+(define-test mark-actions ()
+  (with-report-dangling-threads
+    (let* ((actions-on-marks-run-p nil)
+           (prompter (prompter:make
+                      :sources (make-instance 'prompter:source
+                                              :name "Test source"
+                                              :enable-marks-p t
+                                              :actions-on-marks (lambda (marks)
+                                                                  (declare (ignore marks))
+                                                                  (setf actions-on-marks-run-p
+                                                                        t))
+                                              :constructor '("foo" "bar")))))
+      (when (prompter:all-ready-p prompter)
+        (setf (prompter:marks (first (prompter:sources prompter)))
+              (all-source-suggestions prompter))
+        (mapc #'join-thread* (all-live-prompter-threads))
+        (assert-true actions-on-marks-run-p)))))
+
 (define-test multi-sources ()
   (with-report-dangling-threads
     (let ((prompter (prompter:make
