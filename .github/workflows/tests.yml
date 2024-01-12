@@ -15,8 +15,14 @@ jobs:
     name: ${{ matrix.lisp }} on ${{ matrix.os }}
     strategy:
       matrix:
-        lisp: [sbcl-bin]
-        os: [ubuntu-latest]
+        # Use ccl-bin/1.12.1 instead of 'ccl' because of
+        # https://github.com/roswell/roswell/issues/534.
+        # TODO: Revert when Roswell is functional again.
+        lisp: [sbcl-bin, ccl-bin/1.12.1, ecl/21.2.1]
+        rosargs: [dynamic-space-size=3072]
+        os: [ubuntu-latest, macos-latest] # try windows-latest when we understand commands to install Roswell on it
+
+    # run the job on every combination of "lisp" and "os" above
     runs-on: ${{ matrix.os }}
 
     steps:
