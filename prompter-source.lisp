@@ -372,14 +372,6 @@ Attribute names should be unique for prompter to correctly filter those."
                        result))
                object)
       (sort result #'string< :key #'first)))
-  (:method ((object standard-object) (source prompter:source))
-    (declare (ignorable source))
-    (or
-     (mapcar (lambda (slot)
-               (list (string-capitalize (string slot))
-                     (princ-to-string (slot-value object slot))))
-             (object-public-slots object))
-     (call-next-method)))
   (:method ((object structure-object) (source prompter:source))
     (declare (ignorable source))
     (or
