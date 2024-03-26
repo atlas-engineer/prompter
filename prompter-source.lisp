@@ -344,9 +344,11 @@ See `actions-on-current-suggestion'."
     (default-object-attributes object))
   (:method :around ((object t) (source prompter:source))
     (declare (ignorable source))
-    (loop for pair in (call-next-method)
-          for key = (first pair)
-          for value = (second pair)
+    (loop for elem in (call-next-method)
+          for key = (first elem)
+          for tail = (rest elem)
+          for value = (first tail)
+          for rest = (rest tail)
           ;; NOTE: Duplicate keys are bad, because searching the alist by key
           ;; will always return the first occurrence, and never the second.
           when (member key keys :test #'string-equal)
@@ -354,15 +356,9 @@ See `actions-on-current-suggestion'."
 Attribute names should be unique for prompter to correctly filter those."
                      source key)
           collect key into keys
-          ;; FIXME: Having six (string-t for keys and string-function-t for
-          ;; values) branches would be more correct, but does that matter enough
-          ;; to bother?
-          if (functionp value)
-            collect (list (princ-to-string key) value)
-          ;; REVIEW: Can keys actually be non-string? Maybe type those?
-          else if (and (stringp key) (stringp value))
-                 collect pair
-          else collect (list (princ-to-string key) (princ-to-string value))))
+          collect `(,(princ-to-string key)
+                    ,(if (functionp value) value (princ-to-string value))
+                    ,@rest)))
   (:method ((object hash-table) (source prompter:source))
     (declare (ignorable source))
     (let ((result))
@@ -402,17 +398,17 @@ Attribute names should be unique for prompter to correctly filter those."
                   (princ-to-string (rest pair))))
                object))
       (t (call-next-method))))
-  (:documentation "Return an alist of non-dotted lists (ATTRIBUTE-KEY ATTRIBUTE-VALUE ...) for OBJECT.
-Attributes are meant to describe the OBJECT in the context of the SOURCE.
+  (:documentation "Return an alist of non-dotted lists (ATTRIBUTE-KEY
+ ATTRIBUTE-VALUE ...) for OBJECT.  Attributes are meant to describe the OBJECT
+in the context of the SOURCE.
 
 The attributes after the first two are for the application specific purposes,
 like format strings or code for element display, the calling code can freely use
 those to store arbitrary data.
 
-Both returned attribute-keys and attribute-values are strings (if not, they are
-automatically converted to `princ-to-string'). If the attribute value is a
-function, it's not converted, but rather used for asynchronous attribute
-computation.
+The returned attribute-keys and attribute-values are guaranteed to be strings,
+unless attribute-value is a function.  In that case, the attributes are computed
+asynchronously (see `active-attributes').
 
 For structure and class instances, the alist is made of the exported slots: the
 keys are the sentence-cased slot names and the values the slot values passed to
