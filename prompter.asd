@@ -5,7 +5,7 @@
   :description "Live-narrowing, fuzzy-matching, extensible prompt framework"
   :author "Atlas Engineer LLC"
   :homepage "https://github.com/atlas-engineer/prompter"
-  :license  "BSD-3 Clause"
+  :license "BSD-3 Clause"
   :version "0.1.1"
   :serial t
   :depends-on (alexandria
