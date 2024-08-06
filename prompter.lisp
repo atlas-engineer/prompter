@@ -163,6 +163,8 @@ computation is not finished.")))
   prompter)
 
 (defmethod (setf current-suggestion) (value (prompter prompter))
+  ;; Consider adding a check as to ensure that the second element of value is
+  ;; within bounds of suggestion-index for the source.
   (setf (slot-value prompter 'current-suggestion) value)
   (run-action-on-current-suggestion prompter)
   value)
