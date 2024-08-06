@@ -129,9 +129,8 @@ will be automatically turned into a list.")
     '()
     :export t
     :accessor nil
-    :documentation "Keys of the `suggestion' attributes to display and process
-when filtering.  An empty list means all attributes are displayed.")
-
+    :documentation "Keys of the `suggestion' attributes to process when
+filtering.  An empty list means all attributes are taken into account.")
 
    (suggestion-maker
     #'make-suggestion
