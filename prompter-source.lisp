@@ -129,22 +129,8 @@ will be automatically turned into a list.")
     '()
     :export t
     :accessor nil
-    :documentation "Keys of the `suggestion' attributes to display and process
-when filtering.  An empty list means all attributes are displayed.")
-
-   (hide-attribute-header-p
-    :never                            ; TODO: Remove `-p' as it's not a boolean.
-    :type (member :always :never :single)
-    :documentation "Let know the caller whether the attribute names are meant to
-be displayed or not.
-- When `:always', the column attribute header should be hidden.
-- When `:never', the column attribute header should be shown.
-- When `:single', it's hidden if there is only one active attribute.")
-
-   (hide-suggestion-count-p
-    nil
-    :type boolean
-    :documentation "Whether the `suggestion' count is displayed.")
+    :documentation "Keys of the `suggestion' attributes to process when
+filtering.  An empty list means all attributes are taken into account.")
 
    (suggestion-maker
     #'make-suggestion
@@ -542,8 +528,7 @@ See `actions-on-return'."))
   ((name "Confirm")
    (yes "yes")
    (no "no")
-   (constructor (list t nil))
-   (hide-attribute-header-p :always))
+   (constructor (list t nil)))
   (:export-class-name-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
   (:documentation "Prompt source for yes-no questions."))
@@ -560,8 +545,6 @@ See `actions-on-return'."))
   ((name "Input")
    (filter-preprocessor 'make-input-suggestion)
    (filter nil)
-   (hide-attribute-header-p :always)
-   (hide-suggestion-count-p t)
    (enable-marks-p nil))
   (:export-class-name-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
@@ -585,7 +568,6 @@ If you are looking for a source that just returns its plain suggestions, use `so
   ((name "Input words")
    (filter-preprocessor 'make-word-suggestions)
    (filter nil)
-   (hide-attribute-header-p :always)
    (enable-marks-p t))
   (:export-class-name-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
