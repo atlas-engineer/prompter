@@ -446,8 +446,8 @@ See `resolve-marks' for a reference on how `marks' are handled."
                 (funcall action-on-return marks)))
   (destroy prompter))
 
-(export-always 'toggle-actions-on-current-suggestion-enabled)
-(defun toggle-actions-on-current-suggestion-enabled
+(export-always 'toggle-actions-on-current-suggestion)
+(defun toggle-actions-on-current-suggestion
     (prompter &optional (source (current-source prompter)))
   "Toggle `actions-on-current-suggestion-enabled-p' in SOURCE."
   (setf (actions-on-current-suggestion-enabled-p source)
