@@ -6,9 +6,8 @@
 ;; TODO: Use methods instead of slots?  Probably no, because we must be able to
 ;; handle anonymous sources / prompters.
 ;; TODO: Memoize `suggestion' computation?
-;; TODO: User classes?  Probably useful mostly for `source' since
-;; they may be defined globally.  Conversely, `prompter' is mostly used
-;; locally.
+;; TODO: User classes?  Probably useful mostly for `source' since they may be
+;; defined globally.  Conversely, `prompter' is mostly used locally.
 
 ;; TODO: Performance: plists are faster, especially when it comes to modifying
 ;; existing attributes.
