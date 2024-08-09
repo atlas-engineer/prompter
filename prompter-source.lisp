@@ -780,7 +780,7 @@ terminated.
   When filter returns non-nil, the result is added to `suggestions' and
   `update-notifier' is notified, if `notification-delay' has been exceeded or if
   the last `suggestion' has been processed.
-- Last the `filter-postprocessor' is run the SOURCE and the INPUT.
+- Last the `filter-postprocessor' is run over the SOURCE and the INPUT.
   Its return value is assigned to the list of suggestions.
 - Finally, `ready-notifier' is fired up.
 
