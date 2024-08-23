@@ -3,6 +3,44 @@
 This library is heavily inspired by Emacs' minibuffer and [[https://emacs-helm.github.io/helm/][Helm]].  It only deals
 with the backend side of things, it does not handle any display.
 
+* Usage
+
+You can start by just creating an instance of =prompter:source=
+
+#+begin_src lisp
+
+(make-instance 'prompter:source
+                :name "Test"
+                :constructor '("foo" "bar"))
+
+#+end_src
+
+And passing it to the keyword argument =:sources= of prompt (NOTE: prompt is a function from nyxt)
+#+begin_src lisp
+
+(prompt :prompt "Test prompt"
+         :sources (make-instance 'prompter:source
+                                  :name "Test"
+                                  :constructor '("foo" "bar")))
+
+#+end_src
+
+If you have, for example, objects that are not strings then you may need to implement the method =prompter:object-attributes= which returns a list of attributes. An example:
+
+#+begin_src lisp
+
+(defmethod prompter:object-attributes ((object project) (source prompter:source))
+  `(("Name" ,(name object))
+    ("Purpose" , (purpose object) nil other props)
+    ))
+
+#+end_src
+The first element is the key and the second element is the value. The key has to be a string and the value can be either a string or a function that asynchronously runs and returns a string.
+
+
+The attributes after the value are for application specific purposes, like format strings or code for element display, the calling code can freely use those to store arbitrary data.
+
+
 * Class overview
 
 The key objects are =prompters=, =sources= and =suggestions=.
@@ -38,7 +76,6 @@ defined for =prompt=, it is empty for all but one of its =sources=.
 =Marks= is a concept related to =source= not =prompt=, unlike that of
 =current-suggestion=.  Thus, from the point of view of a =prompt='s object, the
 =marks= are the union of the =marks= of each of the =prompt='s =source=s.
-
 * Features
 
 Non-exhaustive list of features:
