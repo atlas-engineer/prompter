@@ -178,12 +178,8 @@ computation is not finished.")))
                                             (default-action-on-current-suggestion source)))))
                     (action (default-action-on-current-suggestion source))
                     (suggestion (%current-suggestion prompter)))
-      (let ((delay (actions-on-current-suggestion-delay source)))
-        (if (plusp delay)
-            (run-thread "Prompter current suggestion action thread"
-              (sleep delay)
-              (funcall action (value suggestion)))
-            (funcall action (value suggestion))))))
+      (run-thread "Prompter current suggestion action thread"
+        (funcall action (value suggestion)))))
   (:documentation "Run default action on current suggestion.
 Only if the PROMPTER current source has `actions-on-current-suggestion-enabled-p'."))
 

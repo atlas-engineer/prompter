@@ -283,13 +283,7 @@ will be automatically turned into a list.")
     nil
     :type boolean
     :documentation "Whether the first of `actions-on-current-suggestion' is
-automatically executed.  Also see `actions-on-current-suggestion-delay'.")
-
-   (actions-on-current-suggestion-delay
-    0.0
-    :type alex:non-negative-real
-    :documentation "Time in seconds after which `actions-on-current-suggestion'
-run.  Also see `actions-on-current-suggestion-enabled-p'."))
+automatically executed."))
   (:export-class-name-p t)
   (:export-accessor-names-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
