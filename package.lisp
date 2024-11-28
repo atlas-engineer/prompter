@@ -21,28 +21,6 @@ All ARGS are declared as `ignorable'."
                                              lambda-list-keywords)))
        ,@body)))
 
-(defun initargs (class-specifier)
-  "Return CLASS-SPECIFIER initargs as symbols (not keywords)."
-  (delete nil
-          (mapcar (lambda (slot)
-                    (intern
-                     (symbol-name
-                      (first (getf (mopu:slot-properties class-specifier slot) :initargs)))
-                     (symbol-package class-specifier)))
-                  ;; TODO: `slot-names' or `direct-slot-names'?
-                  #-ecl
-                  (mopu:slot-names class-specifier)
-                  #+ecl
-                  (mapcar #'c2mop:slot-definition-name (c2mop:class-slots (find-class 'prompter))))))
-
-(defun exported-p (sym)
-  (eq :external
-      (nth-value 1 (find-symbol (string sym) (symbol-package sym)))))
-
-(defun public-initargs (class-specifier)
-  "Return CLASS-SPECIFIER initargs as symbols (not keywords)."
-  (delete-if (complement #'exported-p) (initargs class-specifier)))
-
 (export-always '*debug-on-error*)
 (defvar *debug-on-error* nil
   "When non-nil, the Lisp debugger is invoked when a condition is raised.

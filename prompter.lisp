@@ -489,7 +489,7 @@ This is unblocked when the PROMPTER is `destroy'ed."
 (export-always 'make)
 (define-function make
     (append '(&rest args)
-            `(&key sources ,@(public-initargs 'prompter)))
+            `(&key ,@(mopu:slot-names 'prompter)))
   "Return `prompter' object.
 The arguments are the initargs of the `prompter' class.
 
