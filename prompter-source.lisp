@@ -45,12 +45,6 @@ This is a \"safe\" wrapper around `bt:make-thread'."
             ,@body)))
     :name ,name))
 
-(defun object-public-slots (object-specifier)
-  "Return the list of exported slots."
-  (delete-if
-   (complement #'exported-p)
-   (mopu:slot-names object-specifier)))
-
 (define-class source ()
   ((name
     (error "Source must have a name")
@@ -353,7 +347,7 @@ Attribute names should be unique for prompter to correctly filter those."
      (mapcar (lambda (slot)
                (list (string-capitalize (string slot))
                      (princ-to-string (slot-value object slot))))
-             (object-public-slots object))
+             (mopu:slot-names object))
      (call-next-method)))
   (:method ((object list) (source prompter:source))
     (declare (ignorable source))
