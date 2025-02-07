@@ -173,8 +173,8 @@ computation is not finished.")))
 (defgeneric run-action-on-current-suggestion (prompter)
   (:method ((prompter prompter))
     (sera:and-let* ((source (current-source prompter))
-                    (_ (actions-on-current-suggestion-enabled-p source))
-                    (_ (not (eq #'identity (alex:ensure-function
+                    ((actions-on-current-suggestion-enabled-p source))
+                    ((not (eq #'identity (alex:ensure-function
                                             (default-action-on-current-suggestion source)))))
                     (action (default-action-on-current-suggestion source))
                     (suggestion (%current-suggestion prompter)))
@@ -273,14 +273,14 @@ when STEPS is positive (resp. negative)."
 
 When STEPS is 0, do nothing.
 When STEPS is negative, go backward."
-  (sera:and-let* ((_ (not (= steps 0)))
+  (sera:and-let* (((not (= steps 0)))
                   (nonempty-sources (remove-if #'empty-source-p (sources prompter)))
                   (current-source-index (or (position source nonempty-sources)
                                             0))
                   (new-source-index (alex:clamp (+ steps current-source-index)
                                                 0
                                                 (1- (length nonempty-sources))))
-                  (_ (not (= current-source-index new-source-index))))
+                  ((not (= current-source-index new-source-index))))
     (nth new-source-index nonempty-sources)))
 
 (export-always 'next-source-p)

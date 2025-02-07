@@ -301,7 +301,7 @@ call."))
 (defmethod (setf marks) (value (source prompter:source))
   (setf (slot-value source 'marks) value)
   (sera:and-let* ((action (alex:ensure-function (first (actions-on-marks source))))
-                  (_ (not (eq #'identity action))))
+                  ((not (eq #'identity action))))
     (run-thread "Prompter marks action thread"
       (funcall action (marks source)))))
 
@@ -806,8 +806,7 @@ feedback to the user while the list of suggestions is being computed."
                              (not (filter source)))
                          (setf (slot-value source 'suggestions) preprocessed-suggestions)
                          (dolist (suggestion preprocessed-suggestions)
-                           (sera:and-let* ((processed-suggestion
-                                            (funcall (filter source) suggestion source input)))
+                           (sera:and-let* (((funcall (filter source) suggestion source input)))
                              (setf (slot-value source 'suggestions)
                                    (insert-item-at suggestion (sort-predicate source)
                                                    (suggestions source)))
