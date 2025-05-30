@@ -254,6 +254,23 @@ when STEPS is positive (resp. negative)."
               (setf (current-suggestion prompter)
                     (list new-source relative-index)))))))))
 
+(export-always 'set-current-suggestion-by-class-and-index)
+(defun set-current-suggestion-by-class-and-index (prompter class-symbol index)
+  "Set the current suggestion of PROMPTER to INDEX in the source whose
+class matches CLASS-SYMBOL.
+Returns T if successful, NIL otherwise."
+  (let* ((source (find class-symbol (sources prompter)
+                       :key #'class-of
+                       :test (lambda (class obj-class)
+                               (eq (find-class class) obj-class))))
+         (suggestion-list (and source (suggestions source))))
+    (when (and source
+               (integerp index)
+               (<= 0 index)
+               (< index (length suggestion-list)))
+      (setf (current-suggestion prompter) (list source index))
+      t)))
+
 (export-always 'next-suggestion)
 (defun next-suggestion (prompter &optional (steps 1))
   "See `set-current-suggestion'."
