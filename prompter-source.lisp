@@ -198,7 +198,7 @@ which case it will be automatically turned into a list.")
 
    (update-notifier
     (make-channel)
-    :type calispel:channel
+    :type lparallel.queue:queue
     :documentation "A channel which is written to when `filter' commits a change
 to `suggestion's.  A notification is only sent if at least `notification-delay'
 has passed.  This is useful so that clients don't have to poll `suggestion's for
@@ -220,7 +220,7 @@ also `next-ready-p' and `all-ready-p' to wait until ready.")
 
    (ready-channel
     nil
-    :type (or null calispel:channel)
+    :type (or null lparallel.queue:queue)
     :export nil
     :initarg nil
     :documentation "Notify listener that source is ready.
@@ -246,7 +246,7 @@ See `attribute-channel'.")
 
    (attribute-channel
     (make-channel)
-    :type (or null calispel:channel)
+    :type (or null lparallel.queue:queue)
     :export nil
     :initarg nil
     :documentation "Channel used to communicate attributes to `attribute-thread'
@@ -585,7 +585,7 @@ If you are looking for a source that just returns its plain suggestions, use `so
                (constructor source)))
         (function
          ;; Run constructor asynchronously.
-         (calispel:! wait-channel t)
+         (lparallel.queue:push-queue t wait-channel)
          (setf (slot-value source 'initial-suggestions)
                (funcall (constructor source) source))))
       (setf (slot-value source 'initial-suggestions)
@@ -595,9 +595,9 @@ If you are looking for a source that just returns its plain suggestions, use `so
       (bt:release-lock (initial-suggestions-lock source))
       (when (listp (constructor source))
         ;; Initial suggestions are set synchronously in this case.
-        (calispel:! wait-channel t)))
+        (lparallel.queue:push-queue t wait-channel)))
     ;; Wait until above thread has acquired the `initial-suggestions-lock'.
-    (calispel:? wait-channel))
+    (lparallel.queue:pop-queue wait-channel))
   (setf (actions-on-current-suggestion source)
         (uiop:ensure-list (or (actions-on-current-suggestion source)
                               #'identity)))
@@ -671,7 +671,8 @@ If the `active-attributes' slot is NIL, return all attributes keys."))
              (if (functionp (attribute-value attribute))
                  (progn
                    (unless attribute-thread (setf attribute-thread (make-attribute-thread source)))
-                   (calispel:! (attribute-channel source) (list suggestion attribute))
+                   (lparallel.queue:push-queue (list suggestion attribute)
+                                              (attribute-channel source))
                    (list (attribute-key attribute) ""))
                  attribute))
            (remove-if
@@ -680,7 +681,7 @@ If the `active-attributes' slot is NIL, return all attributes keys."))
             (attributes suggestion)))
         (when attribute-thread
           ;; Terminate thread:
-          (calispel:! (attribute-channel source) (list nil nil))))))
+          (lparallel.queue:push-queue (list nil nil) (attribute-channel source))))))
   (:documentation "Return the active attributes of SUGGESTION.
 Active attributes are queried from SOURCE."))
 
@@ -689,7 +690,7 @@ Active attributes are queried from SOURCE."))
 Asynchronous attributes have a string-returning function as a value."
   ;; TODO: Notify when done updating, maybe using `update-notifier'?
   (run-thread "Prompter attribute thread"
-    (sera:nlet lp ((sugg-attr-pair (calispel:? (attribute-channel source))))
+    (sera:nlet lp ((sugg-attr-pair (lparallel.queue:pop-queue (attribute-channel source))))
       (destructuring-bind (sugg attr) sugg-attr-pair
         ;; Recheck type here to protect against race conditions.
         (when (functionp (attribute-value attr))
@@ -698,7 +699,7 @@ Asynchronous attributes have a string-returning function as a value."
                  (handler-case (funcall (attribute-value attr) (value sugg))
                    (error (c)
                      (format nil "keyword error: ~a" c)))))
-          (lp (calispel:? (attribute-channel source))))))))
+          (lp (lparallel.queue:pop-queue (attribute-channel source))))))))
 
 (export-always 'marked-p)
 (defun marked-p (source value)
@@ -726,17 +727,12 @@ non-nil."
       (list item)))
 
 (defun make-channel (&optional size)
-  "Return a channel of capacity SIZE.
-If SIZE is NIL, capacity is infinite."
-  (cond
-    ((null size)
-     (make-instance 'calispel:channel
-                    :buffer (make-instance 'jpl-queues:unbounded-fifo-queue)))
-    ((= 0 size)
-     (make-instance 'calispel:channel))
-    ((< 0 size)
-     (make-instance 'calispel:channel
-                    :buffer (make-instance 'jpl-queues:bounded-fifo-queue :capacity size)))))
+  "Return an lparallel queue of capacity SIZE.
+If SIZE is NIL, capacity is infinite.
+`lparallel.queue:push-queue' blocks when a fixed-capacity queue is full."
+  (if (and size (plusp size))
+      (lparallel.queue:make-queue :fixed-capacity size)
+      (lparallel.queue:make-queue)))
 
 (defun copy-object (object &rest slot-overrides)
   (let ((class-sym (class-name (class-of object))))
@@ -784,7 +780,7 @@ feedback to the user while the list of suggestions is being computed."
     ;; source is terminated even though it just finished updating.
     ;; TODO: Destroying threads breaks ECL.  Use conditions instead to terminate
     ;; threads properly.
-    (calispel:! (ready-channel source) nil)
+    (lparallel.queue:push-queue nil (ready-channel source))
     (destroy source))
   (setf (ready-channel source) new-ready-channel)
   (setf (update-thread source)
@@ -816,7 +812,7 @@ feedback to the user while the list of suggestions is being computed."
                                (when (or (> duration (notification-delay source))
                                          (= (length (slot-value source 'suggestions))
                                             (length preprocessed-suggestions)))
-                                 (calispel:! (update-notifier source) t)
+                                 (lparallel.queue:push-queue t (update-notifier source))
                                  (setf last-notification-time now))))))))
                  (postprocess! ()
                    (when (filter-postprocessor source)
@@ -841,4 +837,4 @@ feedback to the user while the list of suggestions is being computed."
                    (postprocess!))
               (setf (ready-p source) t)
               ;; Signal this source is done:
-              (calispel:! new-ready-channel source))))))
+              (lparallel.queue:push-queue source new-ready-channel))))))

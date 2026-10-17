@@ -11,14 +11,10 @@
     :documentation "List of ready sources.")
    (ready-channel
     (make-channel nil)
-    :type calispel:channel
+    :type lparallel.queue:queue
     :export nil
-    :documentation "Communication channel with the `update' thread.")
-   (sync-interrupt-channel
-    (make-channel)
-    :type calispel:channel
-    :export nil
-    :documentation "This channel can be used to stop the queue listening."))
+    :documentation "Communication channel with the `update' thread.
+A source object means that source finished. NIL stops the listener."))
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
   (:documentation "This object is used to memorize which sources are ready for a
 given input.
@@ -100,14 +96,14 @@ If nil, no history is used.")
 
      (result-channel
       (make-channel 1)
-      :type calispel:channel
-      :documentation "Channel to which the `current-suggestion' is sent on exit.
+      :type lparallel.queue:queue
+      :documentation "Queue to which the `current-suggestion' is sent on exit.
 Caller should also listen to `interrupt-channel' to know if the prompter was cancelled.")
 
      (interrupt-channel
       (make-channel 1)
-      :type calispel:channel
-      :documentation "Channel to which an arbitrary value is written on exit.
+      :type lparallel.queue:queue
+      :documentation "Queue to which an arbitrary value is written on exit.
 See also `result-channel'.")
 
      (sync-queue
@@ -213,8 +209,10 @@ Signal destruction by sending a value to PROMPTER's `interrupt-channel'."
   (mapc #'destroy (sources prompter))
   (maybe-funcall (after-destructor prompter))
   ;; TODO: Interrupt before or after destructor?
-  (calispel:! (sync-interrupt-channel (sync-queue prompter)) t)
-  (calispel:! (interrupt-channel prompter) t))
+  ;; NIL on the ready queue wakes `next-ready-p'. The interrupt queue tells
+  ;; the caller the prompter was cancelled.
+  (lparallel.queue:push-queue nil (ready-channel (sync-queue prompter)))
+  (lparallel.queue:push-queue t (interrupt-channel prompter)))
 
 (defun set-current-suggestion (prompter steps &key wrap-over-p)
   "Set PROMPTER's `current-suggestion' by jumping STEPS forward.
@@ -455,8 +453,8 @@ See `resolve-marks' for a reference on how `marks' are handled."
   (setf (returned-p prompter) t)
   (add-input-to-history prompter)
   (alex:when-let ((marks (resolve-marks prompter)))
-    (calispel:! (result-channel prompter)
-                (funcall action-on-return marks)))
+    (lparallel.queue:push-queue (funcall action-on-return marks)
+                                (result-channel prompter)))
   (destroy prompter))
 
 (export-always 'toggle-actions-on-current-suggestion)
@@ -480,18 +478,15 @@ This is unblocked when the PROMPTER is `destroy'ed."
       (if (= (length (ready-sources sync-queue))
              (length (sources prompter)))
           t
-          (calispel:fair-alt
-            ((calispel:? (ready-channel sync-queue) next-source)
-             (cond
-               ((null next-source)
-                nil)
-               (t
-                (push next-source (ready-sources sync-queue))
-                ;; Update current suggestion when update is done:
-                (first-suggestion prompter)
-                next-source)))
-            ((calispel:? (sync-interrupt-channel sync-queue))
-             nil)))
+          (let ((next-source (lparallel.queue:pop-queue (ready-channel sync-queue))))
+            (cond
+              ((null next-source)
+               nil)
+              (t
+               (push next-source (ready-sources sync-queue))
+               ;; Update current suggestion when update is done:
+               (first-suggestion prompter)
+               next-source))))
       ;; No sync-queue if no input was ever set.
       t)))
 

@@ -142,15 +142,21 @@
                                   :filter #'slow-identity-match))
            (prompter (prompter:make :sources source)))
       (setf (prompter:input prompter) "foo")
-      (sera:nlet query-suggestions ((computed-count 1))
-        (calispel:fair-alt
-          ((calispel:? (prompter::ready-channel source))
-           (assert-eq (length suggestion-values)
-                      (length (prompter:suggestions source))))
-          ((calispel:? (prompter:update-notifier source))
-           (assert-eq computed-count
-                      (length (prompter:suggestions source)))
-           (query-suggestions (1+ computed-count))))))))
+      (loop with computed-count = 1
+            do (multiple-value-bind (ready present-p)
+                   (lparallel.queue:try-pop-queue (prompter::ready-channel source) :timeout 0)
+                 (declare (ignore ready))
+                 (when present-p
+                   (assert-eq (length suggestion-values)
+                              (length (prompter:suggestions source)))
+                   (return)))
+               (multiple-value-bind (notified notified-p)
+                   (lparallel.queue:try-pop-queue (prompter:update-notifier source) :timeout 0.05)
+                 (declare (ignore notified))
+                 (when notified-p
+                   (assert-eq computed-count
+                              (length (prompter:suggestions source)))
+                   (incf computed-count)))))))
 
 (define-test asynchronous-suggestion-interrupt ()
   (with-report-dangling-threads
@@ -196,7 +202,7 @@
       (when (prompter:all-ready-p prompter)
         (prompter:run-action-on-return prompter)
         (assert-equal '("bar")
-                      (calispel:? (prompter:result-channel prompter)))))))
+                      (lparallel.queue:pop-queue (prompter:result-channel prompter)))))))
 
 (define-test mark-actions ()
   (with-report-dangling-threads

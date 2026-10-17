@@ -9,7 +9,6 @@
   :version "0.1.1"
   :serial t
   :depends-on (alexandria
-               calispel
                cl-containers
                closer-mop
                lparallel
