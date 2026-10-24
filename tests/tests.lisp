@@ -112,6 +112,29 @@
                      (prompter:%current-suggestion prompter)
                      :source (prompter:current-source prompter))))))
 
+(define-test refresh-sees-updated-attributes ()
+  "Attributes filled in after the source is built become visible to the filter."
+  (with-report-dangling-threads
+    (let* ((url (make-instance 'url :url "http://example.org" :title "Placeholder"))
+           (prompter (prompter:make
+                      :sources (make-instance 'prompter:source
+                                              :name "Test source"
+                                              :constructor (list url)
+                                              :filter #'prompter:submatches))))
+      (setf (prompter:input prompter) "atlas")
+      (assert-true (prompter:all-ready-p prompter))
+      (assert-equal '() (source1-suggestions prompter))
+      (setf (url url) "https://nyxt.atlas.engineer"
+            (title url) "Nyxt")
+      (assert-true (prompter:refresh prompter))
+      (assert-equal (list url) (source1-suggestions prompter))
+      (assert-equal "https://nyxt.atlas.engineer"
+                    (second (assoc "URL"
+                                   (prompter:attributes
+                                    (first (prompter:suggestions
+                                            (first (prompter:sources prompter)))))
+                                   :test #'string=))))))
+
 (defvar *prompter-suggestion-update-interval* 1.5)
 
 (defun slow-identity-match (suggestion source input)

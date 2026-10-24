@@ -70,11 +70,13 @@ It's called when `destroy' is called over `prompter'.")
    (initial-suggestions
     '()
     :reader initial-suggestions
+    :export t
     :documentation "Suggestions used on initialization, before any user input is
 processed.
 On initialization this list is transformed to a list of `suggestion's with
 `suggestion-maker'.
-This list is never modified after initialization.")
+This list is never modified after initialization. The suggestion objects may
+gain new `attributes' when `refresh' is called.")
 
    (initial-suggestions-lock
     (bt:make-lock)
@@ -82,6 +84,14 @@ This list is never modified after initialization.")
     :export nil
     :initarg nil
     :documentation "Protect `initial-suggestions' access.")
+
+   (suggestion-generation
+    0
+    :type integer
+    :export nil
+    :initarg nil
+    :documentation "Bumped when `refresh' changes suggestion attributes.
+A filter started against an older generation does not write `suggestions'.")
 
    (suggestions
     '()
@@ -754,6 +764,85 @@ If SIZE is NIL, capacity is infinite.
   (:documentation "Clean up the source.
 SOURCE should not be used once this has been run."))
 
+(defun recompute-suggestion-attributes (source)
+  "Rebuild `attributes' from each initial suggestion's value and clear `match-data'.
+The next filter then sees fields that were filled in after the source was built."
+  (dolist (suggestion (initial-suggestions source))
+    (when (suggestion-p suggestion)
+      (setf (attributes suggestion)
+            (object-attributes (value suggestion) source))
+      (setf (match-data suggestion) nil))))
+
+(defun suggestions-current-p (source generation)
+  "Return T when GENERATION is still SOURCE's `suggestion-generation'.
+A null GENERATION always matches."
+  (or (null generation)
+      (bt:with-lock-held ((initial-suggestions-lock source))
+        (= generation (suggestion-generation source)))))
+
+(defun set-suggestions-if-current (source generation new)
+  "Set SOURCE's `suggestions' to NEW when GENERATION is still current.
+Return T when the write happens."
+  (bt:with-lock-held ((initial-suggestions-lock source))
+    (when (or (null generation)
+              (= generation (suggestion-generation source)))
+      (setf (slot-value source 'suggestions) new)
+      t)))
+
+(defun filter-source (source input initial-suggestions-copy &key (notify-p t) generation)
+  "Narrow SOURCE to INPUT using INITIAL-SUGGESTIONS-COPY.
+When NOTIFY-P is nil, do not write to `update-notifier'.
+When GENERATION no longer matches, leave `suggestions' alone."
+  (unless (suggestions-current-p source generation)
+    (return-from filter-source nil))
+  (flet ((preprocess (initial-suggestions-copy)
+           (if (filter-preprocessor source)
+               (ensure-suggestions-list
+                source
+                (funcall (filter-preprocessor source)
+                         initial-suggestions-copy source input))
+               initial-suggestions-copy))
+         (process! (preprocessed-suggestions)
+           (let ((last-notification-time (get-internal-real-time)))
+             (unless (set-suggestions-if-current source generation '())
+               (return-from process! nil))
+             (if (or (str:empty? input)
+                     (not (filter source)))
+                 (set-suggestions-if-current source generation preprocessed-suggestions)
+                 (dolist (suggestion preprocessed-suggestions)
+                   (unless (suggestions-current-p source generation)
+                     (return-from process! nil))
+                   (sera:and-let* (((funcall (filter source) suggestion source input)))
+                     (unless (set-suggestions-if-current
+                              source generation
+                              (insert-item-at suggestion (sort-predicate source)
+                                              (suggestions source)))
+                       (return-from process! nil))
+                     (when notify-p
+                       (let* ((now (get-internal-real-time))
+                              (duration (/ (- now last-notification-time)
+                                           internal-time-units-per-second)))
+                         (when (or (> duration (notification-delay source))
+                                   (= (length (slot-value source 'suggestions))
+                                      (length preprocessed-suggestions)))
+                           (lparallel.queue:push-queue t (update-notifier source))
+                           (setf last-notification-time now)))))))))
+         (postprocess! ()
+           (when (and (filter-postprocessor source)
+                      (suggestions-current-p source generation))
+             (set-suggestions-if-current
+              source generation
+              (ensure-suggestions-list
+               source
+               (maybe-funcall (filter-postprocessor source)
+                              (slot-value source 'suggestions)
+                              source
+                              input))))))
+    (setf (last-input-downcase-p source) (current-input-downcase-p source))
+    (setf (current-input-downcase-p source) (str:downcasep input))
+    (process! (preprocess initial-suggestions-copy))
+    (postprocess!)))
+
 (defun update (source input new-ready-channel) ; TODO: Store `input' in the source?
   "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
 If a previous `suggestion' computation was not finished, it is forcefully
@@ -785,56 +874,18 @@ feedback to the user while the list of suggestions is being computed."
   (setf (ready-channel source) new-ready-channel)
   (setf (update-thread source)
         (run-thread "Prompter update thread"
-          (flet ((wait-for-initial-suggestions ()
-                   (bt:acquire-lock (initial-suggestions-lock source))
-                   (bt:release-lock (initial-suggestions-lock source)))
-                 (preprocess (initial-suggestions-copy)
-                   (if (filter-preprocessor source)
-                       (ensure-suggestions-list
-                        source
-                        (funcall (filter-preprocessor source)
-                                 initial-suggestions-copy source input))
-                       initial-suggestions-copy))
-                 (process! (preprocessed-suggestions)
-                   (let ((last-notification-time (get-internal-real-time)))
-                     (setf (slot-value source 'suggestions) '())
-                     (if (or (str:empty? input)
-                             (not (filter source)))
-                         (setf (slot-value source 'suggestions) preprocessed-suggestions)
-                         (dolist (suggestion preprocessed-suggestions)
-                           (sera:and-let* (((funcall (filter source) suggestion source input)))
-                             (setf (slot-value source 'suggestions)
-                                   (insert-item-at suggestion (sort-predicate source)
-                                                   (suggestions source)))
-                             (let* ((now (get-internal-real-time))
-                                    (duration (/ (- now last-notification-time)
-                                                 internal-time-units-per-second)))
-                               (when (or (> duration (notification-delay source))
-                                         (= (length (slot-value source 'suggestions))
-                                            (length preprocessed-suggestions)))
-                                 (lparallel.queue:push-queue t (update-notifier source))
-                                 (setf last-notification-time now))))))))
-                 (postprocess! ()
-                   (when (filter-postprocessor source)
-                     (setf (slot-value source 'suggestions)
-                           (ensure-suggestions-list
-                            source
-                            (maybe-funcall (filter-postprocessor source)
-                                           (slot-value source 'suggestions)
-                                           source
-                                           input))))))
-            (unwind-protect
-                 (progn
-                   (setf (ready-p source) nil)
-                   (wait-for-initial-suggestions)
-                   (setf (last-input-downcase-p source) (current-input-downcase-p source))
-                   (setf (current-input-downcase-p source) (str:downcasep input))
-                   (process!
-                    (preprocess
-                     ;; We copy the list of initial-suggestions so that the
-                     ;; preprocessor cannot modify them.
-                     (mapcar #'copy-object (initial-suggestions source))))
-                   (postprocess!))
-              (setf (ready-p source) t)
-              ;; Signal this source is done:
-              (lparallel.queue:push-queue source new-ready-channel))))))
+          (unwind-protect
+               (let ((generation nil)
+                     (copy nil))
+                 (setf (ready-p source) nil)
+                 ;; Copy under the lock, then filter without holding it. Page
+                 ;; scripts and `destroy-thread' must not run while it is held.
+                 ;; `suggestion-generation' drops this result if `refresh'
+                 ;; changed the attributes in the meantime.
+                 (bt:with-lock-held ((initial-suggestions-lock source))
+                   (setf generation (suggestion-generation source)
+                         copy (mapcar #'copy-object (initial-suggestions source))))
+                 (filter-source source input copy :generation generation))
+            (setf (ready-p source) t)
+            ;; Signal this source is done:
+            (lparallel.queue:push-queue source new-ready-channel)))))

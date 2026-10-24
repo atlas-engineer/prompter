@@ -326,6 +326,34 @@ See also `previous-source'."
 (defun nonempty-source-p (source)
   (suggestions source))
 
+(export-always 'refresh)
+(defun refresh (prompter)
+  "Recompute suggestion attributes from their current values and filter again.
+Use this when the objects behind the suggestions gain data after the prompter
+is shown, for example when a field is filled in on a background thread.
+The current input is unchanged. A single remaining suggestion still follows
+`auto-return-p', unless the prompter has already returned.
+Returns T. The caller redraws; this does not signal `next-ready-p'."
+  (let ((position (second (current-suggestion prompter))))
+    (dolist (source (sources prompter))
+      (let ((generation nil)
+            (copy nil))
+        (bt:with-lock-held ((initial-suggestions-lock source))
+          (recompute-suggestion-attributes source)
+          (setf generation (incf (suggestion-generation source))
+                copy (mapcar #'copy-object (initial-suggestions source))))
+        (filter-source source (input prompter) copy :notify-p nil :generation generation)))
+    (if (and (auto-return-p prompter)
+             (not (returned-p prompter))
+             (sera:single (all-suggestions prompter)))
+        (first-suggestion prompter)
+        (alex:when-let ((source (current-source prompter)))
+          (setf (current-suggestion prompter)
+                (list source
+                      (min (or position 0)
+                           (max 0 (1- (length (suggestions source)))))))))
+    t))
+
 (export-always 'first-suggestion)
 (defun first-suggestion (prompter)
   "Set `current-suggestion' to PROMPTER's first suggestion.
@@ -335,6 +363,7 @@ Empty sources are skipped, unless all sources are empty."
     (setf (current-suggestion prompter)
           (list new-source 0))
     (when (and (auto-return-p prompter)
+               (not (returned-p prompter))
                (sera:single (all-suggestions prompter)))
       (run-action-on-return prompter))))
 
