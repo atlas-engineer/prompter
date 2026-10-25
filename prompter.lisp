@@ -132,9 +132,20 @@ Sources' suggestions can be retrieved, possibly partially, even when the
 computation is not finished.")))
 
 (defun update-sources (prompter &optional (text ""))
+  "Recompute PROMPTER sources for TEXT.
+Sources that depend on other sources run first, then the rest. Dependent sources
+fill themselves again as the others become ready."
   (setf (sync-queue prompter) (make-instance 'sync-queue))
-  (mapc (lambda (source) (update source text (ready-channel (sync-queue prompter))))
-        (sources prompter)))
+  (let ((channel (ready-channel (sync-queue prompter)))
+        (prompter-sources (sources prompter)))
+    (dolist (source prompter-sources)
+      (setf (ready-p source) nil))
+    (dolist (source prompter-sources)
+      (when (depends-on-other-sources-p source)
+        (update source text channel)))
+    (dolist (source prompter-sources)
+      (unless (depends-on-other-sources-p source)
+        (update source text channel)))))
 
 (defmethod initialize-instance :after ((prompter prompter) &key sources
                                        &allow-other-keys)
@@ -336,13 +347,17 @@ The current input is unchanged. A single remaining suggestion still follows
 Returns T. The caller redraws; this does not signal `next-ready-p'."
   (let ((position (second (current-suggestion prompter))))
     (dolist (source (sources prompter))
-      (let ((generation nil)
-            (copy nil))
-        (bt:with-lock-held ((initial-suggestions-lock source))
-          (recompute-suggestion-attributes source)
-          (setf generation (incf (suggestion-generation source))
-                copy (mapcar #'copy-object (initial-suggestions source))))
-        (filter-source source (input prompter) copy :notify-p nil :generation generation)))
+      (unless (depends-on-other-sources-p source)
+        (let ((generation nil)
+              (copy nil))
+          (bt:with-lock-held ((initial-suggestions-lock source))
+            (recompute-suggestion-attributes source)
+            (setf generation (incf (suggestion-generation source))
+                  copy (mapcar #'copy-object (initial-suggestions source))))
+          (filter-source source (input prompter) copy :notify-p nil :generation generation))))
+    (dolist (source (sources prompter))
+      (when (composite-source-p source)
+        (rebuild-composite-suggestions source)))
     (if (and (auto-return-p prompter)
              (not (returned-p prompter))
              (sera:single (all-suggestions prompter)))
@@ -443,6 +458,23 @@ there is no element, NIL is returned."
   (or (all-marks prompter)
       (mapcar #'value (uiop:ensure-list (%current-suggestion prompter)))))
 
+(export-always 'source-actions-on-return)
+(defgeneric source-actions-on-return (source prompter)
+  (:method ((source source) (prompter prompter))
+    (declare (ignore prompter))
+    (slot-value source 'actions-on-return))
+  (:documentation "Return the `actions-on-return' that apply to SOURCE in PROMPTER.
+`composite-source' returns the actions of the source that produced the current
+suggestion."))
+
+(defmethod source-actions-on-return ((source composite-source) (prompter prompter))
+  (let* ((suggestion (nth (second (current-suggestion prompter))
+                          (suggestions source)))
+         (origin (and suggestion (match-data suggestion))))
+    (if (source-p origin)
+        (source-actions-on-return origin prompter)
+        (call-next-method))))
+
 (export-always 'actions-on-return)
 (defun actions-on-return (prompter)
   "Return the list of contextual `actions-on-return'.
@@ -454,7 +486,7 @@ marked element; otherwise return the list of `actions-on-return' for the current
     (reduce #'intersection
             (mapcar (lambda (source) (slot-value source 'actions-on-return))
                     marked-sources))
-    (slot-value (current-source prompter) 'actions-on-return)))
+    (source-actions-on-return (current-source prompter) prompter)))
 
 (defun history-pushnew (history element &key (test #'equal) )
   (alex:when-let ((previous-element-index (containers:element-position history

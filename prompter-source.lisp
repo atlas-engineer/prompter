@@ -287,7 +287,23 @@ will be automatically turned into a list.")
     nil
     :type boolean
     :documentation "Whether the first of `actions-on-current-suggestion' is
-automatically executed."))
+automatically executed.")
+
+   (depends-on-other-sources-p
+    nil
+    :type boolean
+    :documentation "When non-nil, this source republishes suggestions from the
+other sources in the prompter.
+`update-sources' runs it before those sources, and again as each of them becomes
+ready. See `composite-source'.")
+
+   (ready-callbacks
+    nil
+    :type list
+    :export nil
+    :initarg nil
+    :documentation "Functions of one argument, the source, called when `update'
+finishes, after `ready-p' is set and before the source is reported ready."))
   (:export-class-name-p t)
   (:export-accessor-names-p t)
   (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
@@ -295,10 +311,11 @@ automatically executed."))
 `prompter' object.  See its `sources' slot.  A source is a consistent collection
 of suggestions, filters and actions.
 
-When a `prompter' `input' is set, the `update' function is called over all
-sources.  This function pipelines `initial-suggestions' through
-`filter-preprocessor', `filter', and finally `filter-postprocessor'.  If any of
-these functions is nil, it's equivalent to passing the suggestions unchanged.
+When a `prompter' `input' is set, `update' is called over all sources.  This
+function pipelines `initial-suggestions' through `filter-preprocessor',
+`filter', and finally `filter-postprocessor'.  If any of these functions is
+nil, it's equivalent to passing the suggestions unchanged.  Sources with
+`depends-on-other-sources-p' are instead filled from the other sources.
 
 `filter-preprocessor' and `filter-postprocessor' are passed the whole list of
 suggestions; they only set the `suggestion's once they are done.  Conversely,
@@ -843,8 +860,10 @@ When GENERATION no longer matches, leave `suggestions' alone."
     (process! (preprocess initial-suggestions-copy))
     (postprocess!)))
 
-(defun update (source input new-ready-channel) ; TODO: Store `input' in the source?
-  "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
+(export-always 'update)
+(defgeneric update (source input new-ready-channel)
+  (:method ((source source) input new-ready-channel)
+    "Update SOURCE to narrow down the list of `suggestion's according to INPUT.
 If a previous `suggestion' computation was not finished, it is forcefully
 terminated.
 
@@ -855,37 +874,150 @@ terminated.
   the last `suggestion' has been processed.
 - Last the `filter-postprocessor' is run over the SOURCE and the INPUT.
   Its return value is assigned to the list of suggestions.
-- Finally, `ready-notifier' is fired up.
+- Finally, `ready-channel' is notified. `ready-callbacks' run just before that.
 
 The reason we filter in 3 stages is to allow both for asynchronous and
 synchronous filtering.  The benefit of asynchronous filtering is that it sends
 feedback to the user while the list of suggestions is being computed."
-  (when (and (update-thread source)
-             ;; This is prone to a race condition, but worst case we destroy an
-             ;; already terminated thread.
-             (bt:thread-alive-p (update-thread source)))
-    ;; Note that we may be writing multiple times to this channel, but that's
-    ;; OK, only the first value is read, so worst case the caller sees that the
-    ;; source is terminated even though it just finished updating.
-    ;; TODO: Destroying threads breaks ECL.  Use conditions instead to terminate
-    ;; threads properly.
-    (lparallel.queue:push-queue nil (ready-channel source))
-    (destroy source))
-  (setf (ready-channel source) new-ready-channel)
-  (setf (update-thread source)
-        (run-thread "Prompter update thread"
-          (unwind-protect
-               (let ((generation nil)
-                     (copy nil))
-                 (setf (ready-p source) nil)
-                 ;; Copy under the lock, then filter without holding it. Page
-                 ;; scripts and `destroy-thread' must not run while it is held.
-                 ;; `suggestion-generation' drops this result if `refresh'
-                 ;; changed the attributes in the meantime.
-                 (bt:with-lock-held ((initial-suggestions-lock source))
-                   (setf generation (suggestion-generation source)
-                         copy (mapcar #'copy-object (initial-suggestions source))))
-                 (filter-source source input copy :generation generation))
-            (setf (ready-p source) t)
-            ;; Signal this source is done:
-            (lparallel.queue:push-queue source new-ready-channel)))))
+    (when (and (update-thread source)
+               ;; This is prone to a race condition, but worst case we destroy an
+               ;; already terminated thread.
+               (bt:thread-alive-p (update-thread source)))
+      ;; Note that we may be writing multiple times to this channel, but that's
+      ;; OK, only the first value is read, so worst case the caller sees that the
+      ;; source is terminated even though it just finished updating.
+      ;; TODO: Destroying threads breaks ECL.  Use conditions instead to terminate
+      ;; threads properly.
+      (lparallel.queue:push-queue nil (ready-channel source))
+      (destroy source))
+    (setf (ready-channel source) new-ready-channel)
+    (setf (update-thread source)
+          (run-thread "Prompter update thread"
+            (unwind-protect
+                 (let ((generation nil)
+                       (copy nil))
+                   (setf (ready-p source) nil)
+                   ;; Copy under the lock, then filter without holding it. Page
+                   ;; scripts and `destroy-thread' must not run while it is held.
+                   ;; `suggestion-generation' drops this result if `refresh'
+                   ;; changed the attributes in the meantime.
+                   (bt:with-lock-held ((initial-suggestions-lock source))
+                     (setf generation (suggestion-generation source)
+                           copy (mapcar #'copy-object (initial-suggestions source))))
+                   (filter-source source input copy :generation generation))
+              (setf (ready-p source) t)
+              (dolist (callback (ready-callbacks source))
+                (with-protect ("Error in source ready callback: ~a" :condition)
+                  (funcall callback source)))
+              ;; Signal this source is done:
+              (lparallel.queue:push-queue source new-ready-channel)))))
+  (:documentation "Update SOURCE for INPUT and report completion on NEW-READY-CHANNEL.
+See the method on `source'."))
+
+(defun constituent-current-p (composite constituent)
+  "Return non-nil when CONSTITUENT has finished the same update cycle as COMPOSITE."
+  (and (ready-p constituent)
+       (eq (ready-channel constituent) (ready-channel composite))))
+
+(defun composite-top-suggestions (composite &key only-ready-p)
+  "Return the top `suggestions-per-source' suggestions from each of COMPOSITE's sources.
+When ONLY-READY-P is non-nil, skip sources that have not finished this update."
+  (let ((limit (max 0 (suggestions-per-source composite))))
+    (alexandria:mappend
+     (lambda (constituent)
+       (when (or (not only-ready-p)
+                 (constituent-current-p composite constituent))
+         (loop for suggestion in (suggestions constituent)
+               repeat (min limit (length (suggestions constituent)))
+               collect (adopt-suggestion constituent suggestion))))
+     (sources composite))))
+
+(defun adopt-suggestion (origin suggestion)
+  "Return a copy of SUGGESTION tagged with the source ORIGIN it came from.
+`match-data' holds ORIGIN so the composite source can run that source's actions."
+  (make-instance 'suggestion
+                 :value (value suggestion)
+                 :score (score suggestion)
+                 :match-data origin
+                 :attributes (mapcar #'copy-list (attributes suggestion))))
+
+(define-class composite-source (source)
+  ((name "Composite")
+   (filter nil)
+   (filter-preprocessor nil)
+   (filter-postprocessor nil)
+   (constructor nil)
+   (enable-marks-p nil)
+   (depends-on-other-sources-p t)
+   (suggestions-per-source
+    1
+    :type integer
+    :documentation "Number of suggestions taken from each source.
+The suggestions are listed source by source, in the order of `sources'.")
+   (sources
+    '()
+    :type list
+    :documentation "Sources whose top suggestions this source republishes, in order.")
+   (update-lock
+    (bt:make-lock "composite-source")
+    :type bt:lock
+    :export nil
+    :initarg nil
+    :documentation "Serializes suggestion rebuilds and readiness signaling.")
+   (completion-signaled-p
+    nil
+    :type boolean
+    :export nil
+    :initarg nil
+    :documentation "Whether this update cycle already wrote to `ready-channel'."))
+  (:export-class-name-p t)
+  (:export-predicate-name-p t)
+  (:export-accessor-names-p t)
+  (:predicate-name-transformer 'nclasses:always-dashed-predicate-name-transformer)
+  (:documentation "Source listing the top `suggestions-per-source' suggestions from each of `sources'.
+The groups are concatenated in source order, so a prompt can offer one short list
+drawn from every source.
+
+Selecting a suggestion runs the `actions-on-return' of the source it was taken
+from. The originating source is stored in the suggestion `match-data'."))
+
+(defmethod initialize-instance :after ((source composite-source) &key)
+  (dolist (constituent (sources source))
+    (when (eq constituent source)
+      (error "Composite source cannot contain itself."))
+    (unless (source-p constituent)
+      (error "Composite source constituent is not a source: ~s" constituent))
+    (push (lambda (updated)
+            (declare (ignore updated))
+            (finish-composite-source source))
+          (ready-callbacks constituent))))
+
+(defun finish-composite-source (composite)
+  "Rebuild COMPOSITE from its ready constituents.
+Signal readiness once every constituent is `ready-p'."
+  (bt:with-lock-held ((update-lock composite))
+    (setf (slot-value composite 'suggestions)
+          (composite-top-suggestions composite :only-ready-p t))
+    (when (and (not (completion-signaled-p composite))
+               (ready-channel composite)
+               (every (lambda (constituent)
+                        (constituent-current-p composite constituent))
+                      (sources composite)))
+      (setf (completion-signaled-p composite) t
+            (ready-p composite) t)
+      (lparallel.queue:push-queue composite (ready-channel composite)))))
+
+(defun rebuild-composite-suggestions (composite)
+  "Replace COMPOSITE suggestions from its constituents without signaling readiness."
+  (bt:with-lock-held ((update-lock composite))
+    (setf (slot-value composite 'suggestions)
+          (composite-top-suggestions composite))))
+
+(defmethod update ((source composite-source) input new-ready-channel)
+  (declare (ignore input))
+  (bt:with-lock-held ((update-lock source))
+    (setf (slot-value source 'suggestions) '()
+          (ready-channel source) new-ready-channel
+          (ready-p source) nil
+          (completion-signaled-p source) nil))
+  (finish-composite-source source))
